@@ -15,3 +15,6 @@ __pycache__/
 # Node / frontend
 frontend/node_modules/
 frontend/dist/
+
+# Test artifacts
+.playwright-mcp/
