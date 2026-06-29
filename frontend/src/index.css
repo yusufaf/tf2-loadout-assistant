@@ -436,6 +436,134 @@ button {
   color: var(--gold-deep);
 }
 
+/* ---- Save / Share actions ---- */
+.loadout-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+.save-btn,
+.share-btn {
+  flex: 1;
+  background: var(--gold-deep);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  padding: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  font-size: 0.82rem;
+  box-shadow: 2px 2px 0 rgba(43, 38, 32, 0.3);
+}
+.save-btn:hover,
+.share-btn:hover {
+  background: var(--gold);
+}
+.share-btn {
+  background: var(--paper);
+}
+
+.share-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--blu-deep);
+  word-break: break-all;
+}
+
+/* ---- Saved loadouts ---- */
+.saved {
+  margin-top: 1rem;
+  border-top: 2px solid var(--ink);
+  padding-top: 0.7rem;
+}
+.saved-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.saved-head h3 {
+  text-transform: uppercase;
+  font-size: 0.95rem;
+}
+.saved-io {
+  display: flex;
+  gap: 0.3rem;
+}
+.saved-io button {
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.saved-io button:hover {
+  background: var(--paper-edge);
+}
+
+.saved-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.saved-item {
+  background: #fffdf6;
+  border: 2px solid var(--ink);
+  padding: 0.4rem 0.5rem;
+}
+.saved-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.saved-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.saved-meta small {
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.saved-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+.saved-buttons button {
+  background: var(--paper-dark);
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  padding: 0.18rem 0.45rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.saved-buttons button:hover {
+  background: var(--gold);
+}
+.saved-buttons button.danger {
+  color: var(--stamp);
+}
+.saved-buttons button.danger:hover {
+  background: var(--stamp);
+  color: #fff;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

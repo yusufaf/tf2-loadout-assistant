@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchCosmetics,
+  fetchCosmetic,
   fetchConflicts,
   formatPrice,
   backpackUrl,
   type Cosmetic,
   type Conflict,
 } from "./api";
+import { useSavedLoadouts } from "./useSavedLoadouts";
+import { decodeLoadout, shareUrl } from "./shareLink";
 
 const CLASSES = [
   "Scout",
@@ -40,6 +43,28 @@ export default function App() {
   const [status, setStatus] = useState("");
   const [loadout, setLoadout] = useState<Cosmetic[]>([]);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
+  const [shareNote, setShareNote] = useState("");
+  const saved = useSavedLoadouts();
+  const importRef = useRef<HTMLInputElement>(null);
+
+  // Load a shared build from ?build=... once on mount, then strip the param.
+  useEffect(() => {
+    const param = new URLSearchParams(location.search).get("build");
+    if (!param) return;
+    const decoded = decodeLoadout(param);
+    history.replaceState(null, "", location.pathname);
+    if (!decoded) return;
+    setCls(decoded.cls);
+    setStatus("Loading shared loadout…");
+    Promise.all(
+      decoded.defindexes.map((d) => fetchCosmetic(d).catch(() => null))
+    )
+      .then((items) => {
+        setLoadout(items.filter((i): i is Cosmetic => i !== null));
+        setStatus("");
+      })
+      .catch(() => setStatus(""));
+  }, []);
 
   // Load cosmetics whenever class or (debounced) query changes.
   useEffect(() => {
@@ -94,6 +119,58 @@ export default function App() {
   }
   function unequip(defindex: number) {
     setLoadout((l) => l.filter((c) => c.defindex !== defindex));
+  }
+
+  function saveCurrent() {
+    const name = window.prompt("Name this loadout:", `${cls} build`);
+    if (name === null) return;
+    saved.save(name, cls, loadout);
+  }
+
+  function loadSaved(items: Cosmetic[], savedCls: string) {
+    setCls(savedCls);
+    setLoadout(items);
+  }
+
+  function renameSaved(id: string, current: string) {
+    const name = window.prompt("Rename loadout:", current);
+    if (name === null) return;
+    saved.rename(id, name);
+  }
+
+  function deleteSaved(id: string, name: string) {
+    if (window.confirm(`Delete "${name}"?`)) saved.remove(id);
+  }
+
+  async function shareSaved(savedCls: string, items: Cosmetic[]) {
+    const url = shareUrl(savedCls, items);
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareNote("Link copied!");
+    } catch {
+      setShareNote(url);
+    }
+    setTimeout(() => setShareNote(""), 2500);
+  }
+
+  function exportLoadouts() {
+    const blob = new Blob([saved.exportJson()], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "tf2-loadouts.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function onImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-importing the same file
+    if (!file) return;
+    file
+      .text()
+      .then((text) => saved.importJson(text))
+      .catch(() => window.alert("Couldn't import — not a valid TF2 loadouts file."));
   }
 
   return (
@@ -233,8 +310,75 @@ export default function App() {
               >
                 See it in 3D ↗
               </a>
+
+              <div className="loadout-actions">
+                <button className="save-btn" onClick={saveCurrent}>
+                  Save loadout
+                </button>
+                <button
+                  className="share-btn"
+                  onClick={() => shareSaved(cls, loadout)}
+                >
+                  Share ↗
+                </button>
+              </div>
             </>
           )}
+
+          {shareNote && <p className="share-note">{shareNote}</p>}
+
+          <section className="saved">
+            <div className="saved-head">
+              <h3>Saved loadouts</h3>
+              <div className="saved-io">
+                <button onClick={exportLoadouts} title="Download all as JSON">
+                  Export
+                </button>
+                <button
+                  onClick={() => importRef.current?.click()}
+                  title="Import from JSON"
+                >
+                  Import
+                </button>
+                <input
+                  ref={importRef}
+                  type="file"
+                  accept="application/json"
+                  hidden
+                  onChange={onImportFile}
+                />
+              </div>
+            </div>
+
+            {saved.loadouts.length === 0 ? (
+              <p className="empty">No saved loadouts yet.</p>
+            ) : (
+              <ul className="saved-list">
+                {saved.loadouts.map((l) => (
+                  <li key={l.id} className="saved-item">
+                    <div className="saved-meta">
+                      <span className="saved-name">{l.name}</span>
+                      <small>
+                        {l.cls} · {l.items.length} item
+                        {l.items.length === 1 ? "" : "s"}
+                      </small>
+                    </div>
+                    <div className="saved-buttons">
+                      <button onClick={() => loadSaved(l.items, l.cls)}>Load</button>
+                      <button onClick={() => shareSaved(l.cls, l.items)}>Share</button>
+                      <button onClick={() => renameSaved(l.id, l.name)}>Rename</button>
+                      <button
+                        className="danger"
+                        onClick={() => deleteSaved(l.id, l.name)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </aside>
       </div>
 

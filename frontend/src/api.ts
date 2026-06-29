@@ -30,6 +30,12 @@ export async function fetchCosmetics(usedBy: string, q: string): Promise<Cosmeti
   return (await res.json()).items;
 }
 
+export async function fetchCosmetic(defindex: number): Promise<Cosmetic> {
+  const res = await fetch(`${BASE}/cosmetics/${defindex}`);
+  if (!res.ok) throw new Error(`cosmetic ${res.status}`);
+  return res.json();
+}
+
 export async function fetchConflicts(defindexes: number[]): Promise<Conflict[]> {
   if (defindexes.length < 2) return [];
   const res = await fetch(`${BASE}/loadout/conflicts`, {
