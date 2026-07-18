@@ -6,13 +6,20 @@ tests and booted from the on-disk cache in production (see ``main``).
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, ValidationError
+from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic_core import to_jsonable_python
 
+from tf2_loadout.agent import LoadoutAgentService, LoadoutDeps, build_chat_service
 from tf2_loadout.catalog import CatalogService
+from tf2_loadout.config import LLMSettings, load_env
 from tf2_loadout.lore import LoreService
 from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
@@ -46,10 +53,29 @@ class ConflictRequest(BaseModel):
     defindexes: list[int]
 
 
+# Chat is stateless: the client holds the transcript and sends it back each turn, which
+# keeps the server a pure function of its injected services -- like the rest of the app,
+# whose state already lives in localStorage. The cap stops a client blowing the context
+# window (or our token budget) with an unbounded transcript.
+MAX_HISTORY_MESSAGES = 40
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[dict] = Field(default_factory=list, max_length=MAX_HISTORY_MESSAGES)
+
+
+class ChatResponse(BaseModel):
+    message: str
+    suggested_defindexes: list[int]
+    history: list[dict]
+
+
 def create_app(
     catalog: CatalogService,
     pricing: PricingService,
     lore: LoreService | None = None,
+    chat: LoadoutAgentService | None = None,
 ) -> FastAPI:
     app = FastAPI(title="TF2 Loadout Assistant")
     app.add_middleware(
@@ -73,7 +99,12 @@ def create_app(
 
     @app.get("/healthz")
     def healthz() -> dict:
-        return {"status": "ok", "cosmetics": len(catalog), "priced": len(pricing)}
+        return {
+            "status": "ok",
+            "cosmetics": len(catalog),
+            "priced": len(pricing),
+            "chat": chat is not None,
+        }
 
     @app.get("/cosmetics")
     def list_cosmetics(used_by: str | None = None, q: str | None = None, limit: int = 100) -> dict:
@@ -106,6 +137,63 @@ def create_app(
             "summary": item_lore.summary,
         }
 
+    @app.post("/chat")
+    async def chat_turn(req: ChatRequest) -> ChatResponse:
+        if chat is None:
+            raise HTTPException(status_code=503, detail="chat service unavailable")
+        try:
+            history = ModelMessagesTypeAdapter.validate_python(req.history)
+        except ValidationError:
+            raise HTTPException(status_code=422, detail="malformed chat history")
+        try:
+            result = await chat.reply(req.message, history)
+        except UsageLimitExceeded:
+            raise HTTPException(status_code=502, detail="the agent gave up mid-thought")
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"model error: {exc}")
+        # Weaker models name items they never looked up. Re-resolve against the catalog
+        # so a hallucinated defindex never leaves the API.
+        suggested = [
+            di for di in result.output.suggested_defindexes if catalog.get(di)
+        ]
+        return ChatResponse(
+            message=result.output.message,
+            suggested_defindexes=suggested,
+            history=to_jsonable_python(result.all_messages()),
+        )
+
+    @app.post("/chat/stream")
+    async def chat_stream(req: ChatRequest) -> StreamingResponse:
+        """Same turn as /chat, as newline-delimited JSON with tool progress.
+
+        NDJSON rather than SSE because EventSource cannot POST a body, and the
+        transcript is far too big for a query string.
+        """
+        if chat is None:
+            raise HTTPException(status_code=503, detail="chat service unavailable")
+        try:
+            history = ModelMessagesTypeAdapter.validate_python(req.history)
+        except ValidationError:
+            raise HTTPException(status_code=422, detail="malformed chat history")
+
+        async def lines():
+            async for event in chat.stream_reply(req.message, history):
+                if event["kind"] == "final":
+                    result = event["result"]
+                    event = {
+                        "kind": "final",
+                        "message": result.output.message,
+                        "suggested_defindexes": [
+                            di
+                            for di in result.output.suggested_defindexes
+                            if catalog.get(di)
+                        ],
+                        "history": to_jsonable_python(result.all_messages()),
+                    }
+                yield json.dumps(event) + "\n"
+
+        return StreamingResponse(lines(), media_type="application/x-ndjson")
+
     @app.post("/loadout/conflicts")
     def loadout_conflicts(req: ConflictRequest) -> dict:
         cosmetics = [c for di in req.defindexes if (c := catalog.get(di))]
@@ -126,10 +214,21 @@ def main() -> None:
 
     from tf2_wiki_mcp.client import WikiClient
 
+    load_env()
     catalog = CatalogService.from_cache(CACHE_DIR)
     pricing = PricingService.from_cache(CACHE_DIR)
     lore = LoreService(WikiClient(), cache_dir=CACHE_DIR)
-    uvicorn.run(create_app(catalog, pricing, lore), host="127.0.0.1", port=8000)
+
+    settings = LLMSettings.from_env()
+    chat = build_chat_service(
+        settings, LoadoutDeps(catalog=catalog, pricing=pricing, lore=lore)
+    )
+    if chat is None and not settings.enabled:
+        print("chat disabled: no LLM key found (see .env.example)")
+    elif chat is not None:
+        print(f"chat enabled: {settings.model}")
+
+    uvicorn.run(create_app(catalog, pricing, lore, chat), host="127.0.0.1", port=8000)
 
 
 if __name__ == "__main__":

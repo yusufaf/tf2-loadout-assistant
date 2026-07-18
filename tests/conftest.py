@@ -3,6 +3,19 @@ from __future__ import annotations
 import pytest
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _no_real_model_requests(request: pytest.FixtureRequest) -> None:
+    """Hard guarantee no test reaches an LLM provider unless --live is passed.
+
+    Agent tests use TestModel/FunctionModel; this catches any that slip through,
+    regardless of what keys happen to be exported on the dev machine.
+    """
+    import pydantic_ai.models
+
+    if not request.config.getoption("--live"):
+        pydantic_ai.models.ALLOW_MODEL_REQUESTS = False
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--live",

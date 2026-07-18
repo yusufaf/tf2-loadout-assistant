@@ -3,6 +3,7 @@ import {
   fetchCosmetics,
   fetchCosmetic,
   fetchConflicts,
+  fetchChatAvailable,
   formatPrice,
   backpackUrl,
   type Cosmetic,
@@ -10,6 +11,7 @@ import {
 } from "./api";
 import { useSavedLoadouts } from "./useSavedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
+import ChatPanel from "./ChatPanel";
 
 const CLASSES = [
   "Scout",
@@ -44,8 +46,14 @@ export default function App() {
   const [loadout, setLoadout] = useState<Cosmetic[]>([]);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [shareNote, setShareNote] = useState("");
+  const [chatAvailable, setChatAvailable] = useState(false);
   const saved = useSavedLoadouts();
   const importRef = useRef<HTMLInputElement>(null);
+
+  // Hide the advisor entirely when the API has no LLM configured.
+  useEffect(() => {
+    fetchChatAvailable().then(setChatAvailable);
+  }, []);
 
   // Load a shared build from ?build=... once on mount, then strip the param.
   useEffect(() => {
@@ -379,6 +387,10 @@ export default function App() {
               </ul>
             )}
           </section>
+
+          {chatAvailable && (
+            <ChatPanel cls={cls} loadout={loadout} onEquip={setLoadout} />
+          )}
         </aside>
       </div>
 
