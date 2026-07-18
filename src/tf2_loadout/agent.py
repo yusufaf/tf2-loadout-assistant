@@ -36,6 +36,8 @@ Rules you must follow:
   and only ever refer to items it returned.
 - Always pass a query to search_cosmetics when the player describes a look; the catalog
   has thousands of items and an unfiltered class search wastes everyone's time.
+- search_cosmetics already returns each item's price. Use it to answer budget questions
+  directly; only call get_cosmetic when you need the class list or slot for one item.
 - Two cosmetics cannot be worn together when their equip regions overlap. Some regions
   clash across different names (for example whole_head against hat), so never judge this
   yourself.
@@ -112,12 +114,18 @@ def _keyword_matches(items: list[Cosmetic], query: str) -> list[Cosmetic]:
     return [item for _, item in scored]
 
 
-def _summary(cosmetic: Cosmetic) -> dict:
-    """Trimmed shape for search hits -- detail comes from get_cosmetic on demand."""
+def _summary(cosmetic: Cosmetic, pricing: PricingService) -> dict:
+    """Shape for search hits: enough to pick items without a follow-up call each.
+
+    Price belongs here even though it costs tokens -- budget questions ("something under
+    3 ref") are common, and without it the model has to call get_cosmetic per candidate,
+    which exhausts the per-turn request limit.
+    """
     return {
         "defindex": cosmetic.defindex,
         "name": cosmetic.name,
         "equip_regions": sorted(cosmetic.equip_regions),
+        "price": _price_out(pricing, cosmetic.defindex),
     }
 
 
@@ -156,7 +164,7 @@ def build_agent(
         items = ctx.deps.catalog.for_class(used_by) if used_by else ctx.deps.catalog.all()
         if query:
             items = _keyword_matches(items, query)
-        return [_summary(c) for c in items[:limit]]
+        return [_summary(c, ctx.deps.pricing) for c in items[:limit]]
 
     @agent.tool
     def check_conflicts(
@@ -194,10 +202,9 @@ def build_agent(
         if cosmetic is None:
             return None
         return {
-            **_summary(cosmetic),
+            **_summary(cosmetic, ctx.deps.pricing),
             "used_by_classes": list(cosmetic.used_by_classes),
             "item_slot": cosmetic.item_slot,
-            "price": _price_out(ctx.deps.pricing, defindex),
         }
 
     return agent

@@ -121,6 +121,17 @@ async def test_search_combines_class_and_query() -> None:
     assert _tool_returns(messages, "search_cosmetics")[0] == []
 
 
+async def test_search_results_carry_prices() -> None:
+    # Without prices here, "find me something under 3 ref" forces a get_cosmetic call
+    # per candidate and blows the per-turn request budget.
+    agent = build_agent(_calls_then_finishes("search_cosmetics", {"used_by": "Spy"}))
+    with capture_run_messages() as messages:
+        await agent.run("dress my Spy", deps=_deps())
+    items = {i["defindex"]: i for i in _tool_returns(messages, "search_cosmetics")[0]}
+    assert items[1]["price"] == {"currency": "metal", "value": 5.0, "value_high": 6.0}
+    assert items[2]["price"] is None
+
+
 async def test_search_matches_any_keyword_in_a_multi_word_query() -> None:
     # Models pass keyword lists, not exact substrings. Requiring the whole string to
     # appear made every such search return [], which sent them brute-forcing instead.
