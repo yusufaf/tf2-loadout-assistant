@@ -6,10 +6,12 @@ tests and booted from the on-disk cache in production (see ``main``).
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import ModelMessagesTypeAdapter
@@ -159,6 +161,38 @@ def create_app(
             suggested_defindexes=suggested,
             history=to_jsonable_python(result.all_messages()),
         )
+
+    @app.post("/chat/stream")
+    async def chat_stream(req: ChatRequest) -> StreamingResponse:
+        """Same turn as /chat, as newline-delimited JSON with tool progress.
+
+        NDJSON rather than SSE because EventSource cannot POST a body, and the
+        transcript is far too big for a query string.
+        """
+        if chat is None:
+            raise HTTPException(status_code=503, detail="chat service unavailable")
+        try:
+            history = ModelMessagesTypeAdapter.validate_python(req.history)
+        except ValidationError:
+            raise HTTPException(status_code=422, detail="malformed chat history")
+
+        async def lines():
+            async for event in chat.stream_reply(req.message, history):
+                if event["kind"] == "final":
+                    result = event["result"]
+                    event = {
+                        "kind": "final",
+                        "message": result.output.message,
+                        "suggested_defindexes": [
+                            di
+                            for di in result.output.suggested_defindexes
+                            if catalog.get(di)
+                        ],
+                        "history": to_jsonable_python(result.all_messages()),
+                    }
+                yield json.dumps(event) + "\n"
+
+        return StreamingResponse(lines(), media_type="application/x-ndjson")
 
     @app.post("/loadout/conflicts")
     def loadout_conflicts(req: ConflictRequest) -> dict:

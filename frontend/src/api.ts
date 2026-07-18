@@ -81,6 +81,53 @@ export async function sendChat(
   return res.json();
 }
 
+/** One newline-delimited JSON line from /chat/stream. */
+export interface ChatStreamEvent {
+  kind: "tool" | "final" | "error";
+  name?: string;
+  message?: string;
+  suggested_defindexes?: number[];
+  history?: unknown[];
+  detail?: string;
+}
+
+/**
+ * Stream a chat turn, invoking `onEvent` per line.
+ *
+ * Once the response starts, failures arrive as an `error` event rather than an HTTP
+ * status, since the status is already sent by then.
+ */
+export async function streamChat(
+  message: string,
+  history: unknown[],
+  onEvent: (event: ChatStreamEvent) => void
+): Promise<void> {
+  const res = await fetch(`${BASE}/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, history }),
+  });
+  if (res.status === 503) throw new ChatUnavailableError("chat not configured");
+  if (!res.ok || !res.body) throw new Error(`chat ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // A chunk can split a line, so only parse up to the last newline.
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.trim()) onEvent(JSON.parse(line));
+    }
+  }
+  if (buffer.trim()) onEvent(JSON.parse(buffer));
+}
+
 const CURRENCY_LABEL: Record<string, string> = {
   metal: "ref",
   keys: "keys",

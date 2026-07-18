@@ -10,13 +10,15 @@ to a formatter.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import asyncio
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.agent import AgentRunResult
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.messages import FunctionToolCallEvent, ModelMessage
 from pydantic_ai.models import Model
 from pydantic_ai.usage import UsageLimits
 
@@ -235,6 +237,55 @@ class LoadoutAgentService:
             message_history=history,
             usage_limits=self._limits,
         )
+
+    async def stream_reply(
+        self, prompt: str, history: Sequence[ModelMessage] | None = None
+    ) -> AsyncIterator[dict]:
+        """Run a turn, yielding progress as it happens.
+
+        Yields ``{"kind": "tool", "name": ...}`` as each tool is invoked, then exactly
+        one terminal ``final`` or ``error`` event. Tool calls are the only progress
+        worth reporting: the reply is structured output, so streaming its tokens would
+        just leak half-built JSON.
+        """
+        queue: asyncio.Queue[dict] = asyncio.Queue()
+        done = object()
+
+        async def on_events(_ctx, stream) -> None:
+            async for event in stream:
+                if isinstance(event, FunctionToolCallEvent):
+                    queue.put_nowait({"kind": "tool", "name": event.part.tool_name})
+
+        async def run_turn() -> None:
+            try:
+                result = await self._agent.run(
+                    prompt,
+                    deps=self._deps,
+                    message_history=history,
+                    usage_limits=self._limits,
+                    event_stream_handler=on_events,
+                )
+                queue.put_nowait({"kind": "final", "result": result})
+            except UsageLimitExceeded:
+                queue.put_nowait(
+                    {"kind": "error", "detail": "the agent gave up mid-thought"}
+                )
+            except Exception as exc:
+                queue.put_nowait({"kind": "error", "detail": f"model error: {exc}"})
+            finally:
+                queue.put_nowait(done)  # type: ignore[arg-type]
+
+        task = asyncio.create_task(run_turn())
+        try:
+            while True:
+                item = await queue.get()
+                if item is done:
+                    return
+                yield item
+        finally:
+            # The client may hang up mid-turn; don't leave the run orphaned.
+            if not task.done():
+                task.cancel()
 
     @classmethod
     def from_settings(

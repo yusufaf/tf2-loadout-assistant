@@ -8,7 +8,7 @@ from __future__ import annotations
 from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
-from pydantic_ai.models.test import TestModel
+from pydantic_ai.models.test import TestModel  # noqa: F401  (used across tests)
 
 from tf2_loadout.agent import (
     LoadoutAgentService,
@@ -272,6 +272,25 @@ async def test_service_returns_structured_reply() -> None:
     )
     result = await service.reply("dress my Spy", history=None)
     assert result.output.suggested_defindexes == [1, 2]
+
+
+async def test_stream_reply_reports_each_tool_then_the_result() -> None:
+    service = LoadoutAgentService(build_agent(TestModel()), _deps())
+    events = [e async for e in service.stream_reply("dress my Spy", history=None)]
+
+    assert events[-1]["kind"] == "final"
+    tools = [e["name"] for e in events if e["kind"] == "tool"]
+    # TestModel exercises every registered tool, so all three should be announced.
+    assert set(tools) == {"search_cosmetics", "get_cosmetic", "check_conflicts"}
+    # Progress has to arrive before the answer or streaming buys us nothing.
+    assert all(e["kind"] == "tool" for e in events[:-1])
+
+
+async def test_stream_reply_surfaces_errors_as_an_event() -> None:
+    # Mid-stream the HTTP status is already sent, so failures travel as data.
+    service = LoadoutAgentService(build_agent(TestModel()), _deps(), max_requests=0)
+    events = [e async for e in service.stream_reply("dress my Spy", history=None)]
+    assert events[-1]["kind"] == "error"
 
 
 async def test_service_round_trips_history() -> None:

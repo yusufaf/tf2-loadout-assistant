@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import {
   fetchCosmetic,
-  sendChat,
+  streamChat,
   ChatUnavailableError,
+  type ChatStreamEvent,
   type Cosmetic,
 } from "./api";
+
+/** What each tool is doing, in the player's terms rather than the function's. */
+const TOOL_LABELS: Record<string, string> = {
+  search_cosmetics: "Digging through the backpack…",
+  get_cosmetic: "Checking an item…",
+  check_conflicts: "Making sure it all fits…",
+  get_item_lore: "Reading up on it…",
+};
 
 interface Turn {
   role: "user" | "bot";
@@ -27,6 +36,7 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
   const [history, setHistory] = useState<unknown[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -42,6 +52,7 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
 
     setInput("");
     setError("");
+    setProgress("");
     setTurns((t) => [...t, { role: "user", text }]);
     setBusy(true);
 
@@ -49,19 +60,38 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
     const equipped = loadout.map((c) => c.name).join(", ") || "nothing yet";
     const prompt = `[Current class: ${cls}. Equipped: ${equipped}.]\n${text}`;
 
+    let final: ChatStreamEvent | null = null;
+    let failure = "";
+
     try {
-      const reply = await sendChat(prompt, history);
-      setHistory(reply.history);
-      // Re-resolve defindexes so a chip can never name an item that isn't real.
-      const items = (
-        await Promise.all(
-          reply.suggested_defindexes.map((d) => fetchCosmetic(d).catch(() => null))
-        )
-      ).filter((i): i is Cosmetic => i !== null);
-      setTurns((t) => [
-        ...t,
-        { role: "bot", text: reply.message, suggestions: items },
-      ]);
+      await streamChat(prompt, history, (event) => {
+        if (event.kind === "tool") {
+          setProgress(TOOL_LABELS[event.name ?? ""] ?? "Working…");
+        } else if (event.kind === "final") {
+          final = event;
+        } else if (event.kind === "error") {
+          failure = event.detail ?? "The advisor didn't answer. Try again?";
+        }
+      });
+
+      if (failure || !final) {
+        setError(failure || "The advisor didn't answer. Try again?");
+      } else {
+        const reply: ChatStreamEvent = final;
+        setHistory(reply.history ?? []);
+        // Re-resolve defindexes so a chip can never name an item that isn't real.
+        const items = (
+          await Promise.all(
+            (reply.suggested_defindexes ?? []).map((d) =>
+              fetchCosmetic(d).catch(() => null)
+            )
+          )
+        ).filter((i): i is Cosmetic => i !== null);
+        setTurns((t) => [
+          ...t,
+          { role: "bot", text: reply.message ?? "", suggestions: items },
+        ]);
+      }
     } catch (err) {
       setError(
         err instanceof ChatUnavailableError
@@ -70,6 +100,7 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
       );
     } finally {
       setBusy(false);
+      setProgress("");
     }
   }
 
@@ -105,7 +136,9 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
           </div>
         ))}
 
-        {busy && <p className="chat-status">Rummaging through the backpack…</p>}
+        {busy && (
+          <p className="chat-status">{progress || "Thinking it over…"}</p>
+        )}
         {error && <p className="chat-status error">{error}</p>}
       </div>
 
