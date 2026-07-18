@@ -13,8 +13,11 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
     "httpx>=0.28.1",
-    "anthropic>=0.40.0",
     "pydantic>=2.9.0",
+    # Provider-agnostic LLM layer. Extras pick which provider SDKs come along;
+    # [openai] also covers Ollama and any OpenAI-compatible endpoint.
+    "pydantic-ai-slim[anthropic,openai,openrouter]>=2.13.0",
+    "python-dotenv>=1.0",
     # Reuse the wiki client + parsers from the sibling MCP project for item lore.
     "tf2-wiki-mcp",
     "vdf>=3.4",
