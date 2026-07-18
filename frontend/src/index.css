@@ -564,6 +564,128 @@ button {
   color: #fff;
 }
 
+/* ---- Advisor chat ---- */
+.chat {
+  margin-top: 1rem;
+  border-top: 2px solid var(--ink);
+  padding-top: 0.7rem;
+}
+.chat h3 {
+  text-transform: uppercase;
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+
+.chat-log {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.chat-msg {
+  border: 2px solid var(--ink);
+  padding: 0.4rem 0.55rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.chat-msg p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.chat-msg.user {
+  background: var(--paper-dark);
+  margin-left: 1.25rem;
+}
+.chat-msg.bot {
+  background: #fffdf6;
+  border-left: 5px solid var(--blu);
+  margin-right: 1.25rem;
+}
+
+.chat-suggestions {
+  margin-top: 0.5rem;
+  padding-top: 0.45rem;
+  border-top: 1px dashed var(--paper-edge);
+}
+.chat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.4rem;
+}
+.chat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  padding: 0.15rem 0.35rem;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.chat-chip img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.chat-equip {
+  background: var(--gold);
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  padding: 0.22rem 0.6rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+}
+.chat-equip:hover {
+  background: var(--gold-deep);
+}
+
+.chat-form {
+  display: flex;
+  gap: 0.4rem;
+}
+.chat-input {
+  font-size: 0.82rem;
+}
+.chat-send {
+  background: var(--blu);
+  border: 2px solid var(--ink);
+  color: #fffdf6;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+.chat-send:hover:not(:disabled) {
+  background: var(--blu-deep);
+}
+.chat-send:disabled,
+.chat-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.chat-status {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+.chat-status.error {
+  color: var(--stamp);
+  font-style: normal;
+  font-weight: 600;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

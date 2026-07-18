@@ -47,6 +47,40 @@ export async function fetchConflicts(defindexes: number[]): Promise<Conflict[]> 
   return (await res.json()).conflicts;
 }
 
+/** A turn's worth of chat. `history` is opaque transcript state we hand straight back. */
+export interface ChatReply {
+  message: string;
+  suggested_defindexes: number[];
+  history: unknown[];
+}
+
+/** The API is up but has no LLM configured, so the panel should stay hidden. */
+export class ChatUnavailableError extends Error {}
+
+export async function fetchChatAvailable(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE}/healthz`);
+    if (!res.ok) return false;
+    return Boolean((await res.json()).chat);
+  } catch {
+    return false;
+  }
+}
+
+export async function sendChat(
+  message: string,
+  history: unknown[]
+): Promise<ChatReply> {
+  const res = await fetch(`${BASE}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, history }),
+  });
+  if (res.status === 503) throw new ChatUnavailableError("chat not configured");
+  if (!res.ok) throw new Error(`chat ${res.status}`);
+  return res.json();
+}
+
 const CURRENCY_LABEL: Record<string, string> = {
   metal: "ref",
   keys: "keys",
