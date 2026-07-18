@@ -38,6 +38,9 @@ Rules you must follow:
   and only ever refer to items it returned.
 - Always pass a query to search_cosmetics when the player describes a look; the catalog
   has thousands of items and an unfiltered class search wastes everyone's time.
+- Item names are a weak guide to how something looks. When a style is ambiguous, call
+  get_item_lore on two or three finalists rather than trusting a name that merely
+  contains the right word.
 - search_cosmetics already returns each item's price. Use it to answer budget questions
   directly; only call get_cosmetic when you need the class list or slot for one item.
 - Two cosmetics cannot be worn together when their equip regions overlap. Some regions
@@ -145,7 +148,11 @@ def build_agent(
 
     @agent.instructions
     def catalog_size(ctx: RunContext[LoadoutDeps]) -> str:
-        return f"The catalog holds {len(ctx.deps.catalog)} cosmetics."
+        note = f"The catalog holds {len(ctx.deps.catalog)} cosmetics."
+        if ctx.deps.lore is None:
+            # Don't invite calls to a tool that can only ever return null here.
+            note += " Item lore is unavailable, so judge style from names alone."
+        return note
 
     @agent.tool
     def search_cosmetics(
@@ -167,6 +174,32 @@ def build_agent(
         if query:
             items = _keyword_matches(items, query)
         return [_summary(c, ctx.deps.pricing) for c in items[:limit]]
+
+    @agent.tool
+    async def get_item_lore(
+        ctx: RunContext[LoadoutDeps], defindex: int
+    ) -> str | None:
+        """The TF2 wiki's description of an item. Null if none is available.
+
+        Use this to judge an item's *look* when its name doesn't say enough -- equip
+        regions carry no aesthetic signal. It hits the network, so use it on a few
+        finalists rather than every search hit.
+
+        Args:
+            defindex: The item's defindex, as returned by search_cosmetics.
+        """
+        if ctx.deps.lore is None:
+            return None
+        cosmetic = ctx.deps.catalog.get(defindex)
+        if cosmetic is None:
+            return None
+        try:
+            item_lore = await ctx.deps.lore.get_lore(cosmetic.name)
+        except Exception:
+            # The wiki is rate-limited and flaky; a missing description is not worth
+            # failing a whole turn over.
+            return None
+        return item_lore.summary if item_lore else None
 
     @agent.tool
     def check_conflicts(

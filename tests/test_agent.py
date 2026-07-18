@@ -20,6 +20,7 @@ from tf2_loadout.agent import (
     build_chat_service,
 )
 from tf2_loadout.config import LLMSettings
+from tf2_loadout.lore import LoreService
 from tf2_loadout.catalog import CatalogService
 from tf2_loadout.models import Cosmetic, Price
 from tf2_loadout.pricing import PricingService
@@ -75,7 +76,12 @@ async def test_agent_exposes_the_expected_tools() -> None:
     with agent.override(model=model):
         await agent.run("hello", deps=_deps())
     names = {t.name for t in model.last_model_request_parameters.function_tools}
-    assert names == {"search_cosmetics", "get_cosmetic", "check_conflicts"}
+    assert names == {
+        "search_cosmetics",
+        "get_cosmetic",
+        "check_conflicts",
+        "get_item_lore",
+    }
 
 
 async def test_search_cosmetics_schema_takes_class_and_query() -> None:
@@ -213,6 +219,60 @@ async def test_unpriced_item_reports_null_price() -> None:
     assert _tool_returns(messages, "get_cosmetic")[0]["price"] is None
 
 
+class _StubWiki:
+    """Stands in for the wiki client; mirrors the stub used in test_api."""
+
+    def __init__(self, fail: bool = False):
+        self.fail = fail
+
+    async def query(self, **params):
+        if self.fail:
+            raise RuntimeError("wiki unreachable")
+        return {
+            "parse": {
+                "title": "Spy Fedora",
+                "wikitext": "'''The Spy Fedora''' is a dapper hat worn by lawmen "
+                "and the men they chase.",
+            }
+        }
+
+
+def _deps_with_lore(fail: bool = False) -> LoadoutDeps:
+    deps = _deps()
+    deps.lore = LoreService(_StubWiki(fail=fail))
+    return deps
+
+
+async def test_get_item_lore_returns_the_wiki_summary() -> None:
+    agent = build_agent(_calls_then_finishes("get_item_lore", {"defindex": 1}))
+    with capture_run_messages() as messages:
+        await agent.run("what's the fedora about", deps=_deps_with_lore())
+    summary = _tool_returns(messages, "get_item_lore")[0]
+    assert "dapper hat worn by lawmen" in summary
+
+
+async def test_get_item_lore_is_none_without_a_lore_service() -> None:
+    # Style reasoning is optional; the tool must degrade rather than explode.
+    agent = build_agent(_calls_then_finishes("get_item_lore", {"defindex": 1}))
+    with capture_run_messages() as messages:
+        await agent.run("what's the fedora about", deps=_deps())
+    assert _tool_returns(messages, "get_item_lore")[0] is None
+
+
+async def test_get_item_lore_is_none_when_the_wiki_fails() -> None:
+    agent = build_agent(_calls_then_finishes("get_item_lore", {"defindex": 1}))
+    with capture_run_messages() as messages:
+        await agent.run("what's the fedora about", deps=_deps_with_lore(fail=True))
+    assert _tool_returns(messages, "get_item_lore")[0] is None
+
+
+async def test_get_item_lore_is_none_for_an_unknown_item() -> None:
+    agent = build_agent(_calls_then_finishes("get_item_lore", {"defindex": 999}))
+    with capture_run_messages() as messages:
+        await agent.run("what's 999 about", deps=_deps_with_lore())
+    assert _tool_returns(messages, "get_item_lore")[0] is None
+
+
 async def test_check_conflicts_flags_overlapping_regions() -> None:
     # 1 and 3 both occupy "hat".
     agent = build_agent(_calls_then_finishes("check_conflicts", {"defindexes": [1, 3]}))
@@ -280,8 +340,13 @@ async def test_stream_reply_reports_each_tool_then_the_result() -> None:
 
     assert events[-1]["kind"] == "final"
     tools = [e["name"] for e in events if e["kind"] == "tool"]
-    # TestModel exercises every registered tool, so all three should be announced.
-    assert set(tools) == {"search_cosmetics", "get_cosmetic", "check_conflicts"}
+    # TestModel exercises every registered tool, so each should be announced.
+    assert set(tools) == {
+        "search_cosmetics",
+        "get_cosmetic",
+        "check_conflicts",
+        "get_item_lore",
+    }
     # Progress has to arrive before the answer or streaming buys us nothing.
     assert all(e["kind"] == "tool" for e in events[:-1])
 

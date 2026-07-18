@@ -75,9 +75,9 @@ def test_base_url_alone_enables_a_self_hosted_endpoint(
 
 
 def test_max_requests_defaults_and_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A competent model needs ~8 requests for a full loadout turn; the default has to
-    # leave headroom above that or normal turns die on the limit.
-    assert LLMSettings.from_env().max_requests == 15
+    # ~8 requests for a plain turn, 13 for a lore-checked style question; the default
+    # has to clear that or honest turns die on the limit.
+    assert LLMSettings.from_env().max_requests == 25
     monkeypatch.setenv("LLM_MAX_REQUESTS", "3")
     assert LLMSettings.from_env().max_requests == 3
 

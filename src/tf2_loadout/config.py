@@ -16,9 +16,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_MODEL = "anthropic:claude-opus-4-8"
-# Measured: a full "build me a themed loadout" turn takes ~8 model requests (search,
-# a get_cosmetic per candidate, check_conflicts, final output). Leave headroom.
-DEFAULT_MAX_REQUESTS = 15
+# Measured: a plain loadout turn takes ~8 model requests; a hard style question that
+# checks item lore before committing took 13. Leave real headroom above that -- the
+# limit exists to stop a runaway loop, not to cut off honest work.
+DEFAULT_MAX_REQUESTS = 25
 
 # Native API-key env var per provider prefix. Pydantic AI's providers read these
 # themselves, so we never have to construct a provider object by hand.
