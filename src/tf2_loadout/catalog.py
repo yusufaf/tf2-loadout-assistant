@@ -89,6 +89,15 @@ def merge_catalog(
 SCHEMA_CACHE = "schema_items.json"
 EQUIP_CACHE = "equip.json"
 
+# Bump whenever equip.json gains or changes a field. A cache written by an older version
+# would otherwise load fine and quietly report every item as unpaintable, style-less and
+# unrestricted -- wrong answers are worse than a loud failure.
+CACHE_VERSION = 2
+
+
+class StaleCacheError(RuntimeError):
+    """Raised when the on-disk cache predates the current cache format."""
+
 
 def save_schema_items(raw_items: list[dict], path: str | Path) -> None:
     """Persist the raw schema items to a local JSON cache."""
@@ -102,13 +111,14 @@ def save_catalog_cache(
 ) -> None:
     """Cache everything needed to rebuild the catalog offline.
 
-    Stores raw GetSchemaItems plus the *derived* equip data (regions + conflict
-    matrix) — far smaller than the full items_game.txt.
+    Stores raw GetSchemaItems plus the *derived* equip data (regions, conflict matrix
+    and filterable attributes) — far smaller than the full items_game.txt.
     """
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     save_schema_items(schema_items, cache_dir / SCHEMA_CACHE)
     equip = {
+        "version": CACHE_VERSION,
         "regions": {
             str(di): sorted(rs)
             for di, rs in resolve_equip_regions(items_game).items()
@@ -116,6 +126,14 @@ def save_catalog_cache(
         "matrix": {
             region: sorted(conf)
             for region, conf in parse_conflict_matrix(items_game).items()
+        },
+        "attrs": {
+            str(di): {
+                "paintable": a.paintable,
+                "holiday_restriction": a.holiday_restriction,
+                "styles": list(a.styles),
+            }
+            for di, a in resolve_item_attrs(items_game).items()
         },
     }
     (cache_dir / EQUIP_CACHE).write_text(json.dumps(equip), encoding="utf-8")
@@ -136,6 +154,11 @@ class CatalogService:
     def __len__(self) -> int:
         return len(self._cosmetics)
 
+    @property
+    def conflict_matrix(self) -> dict[str, frozenset[str]]:
+        """The cross-region conflict matrix, for shipping to clients."""
+        return dict(self._conflict_matrix)
+
     @classmethod
     def from_schema_items(cls, raw_items: list[dict]) -> "CatalogService":
         return cls(parse_schema_items(raw_items))
@@ -147,7 +170,8 @@ class CatalogService:
         """Build the catalog by merging GetSchemaItems with items_game equip data."""
         regions = resolve_equip_regions(items_game)
         matrix = parse_conflict_matrix(items_game)
-        return cls(merge_catalog(schema_items, regions), conflict_matrix=matrix)
+        attrs = resolve_item_attrs(items_game)
+        return cls(merge_catalog(schema_items, regions, attrs), conflict_matrix=matrix)
 
     def conflicts(self, cosmetics: list[Cosmetic]) -> list[Conflict]:
         """Detect equip conflicts among the given cosmetics using the region matrix."""
@@ -161,13 +185,27 @@ class CatalogService:
             (cache_dir / SCHEMA_CACHE).read_text(encoding="utf-8")
         )
         equip = json.loads((cache_dir / EQUIP_CACHE).read_text(encoding="utf-8"))
+        version = equip.get("version", 1)
+        if version != CACHE_VERSION:
+            raise StaleCacheError(
+                f"catalog cache is v{version}, expected v{CACHE_VERSION} — "
+                "rebuild it with `uv run pytest --live`"
+            )
         regions = {
             int(di): frozenset(rs) for di, rs in equip["regions"].items()
         }
         matrix = {
             region: frozenset(conf) for region, conf in equip["matrix"].items()
         }
-        return cls(merge_catalog(schema_items, regions), conflict_matrix=matrix)
+        attrs = {
+            int(di): ItemAttrs(
+                paintable=a["paintable"],
+                holiday_restriction=a["holiday_restriction"],
+                styles=tuple(a["styles"]),
+            )
+            for di, a in equip["attrs"].items()
+        }
+        return cls(merge_catalog(schema_items, regions, attrs), conflict_matrix=matrix)
 
     def all(self) -> list[Cosmetic]:
         return list(self._cosmetics)
