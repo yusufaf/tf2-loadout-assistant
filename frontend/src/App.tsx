@@ -3,12 +3,16 @@ import {
   fetchCosmetics,
   fetchCosmetic,
   fetchConflicts,
+  fetchConflictMatrix,
   fetchChatAvailable,
   formatPrice,
   backpackUrl,
   type Cosmetic,
   type Conflict,
 } from "./api";
+import { DEFAULT_FILTERS, applyFilters, type FilterState } from "./filters";
+import type { ConflictMatrix } from "./conflicts";
+import FilterBar from "./FilterBar";
 import { useSavedLoadouts } from "./useSavedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
 import ChatPanel from "./ChatPanel";
@@ -45,6 +49,8 @@ export default function App() {
   const [status, setStatus] = useState("");
   const [loadout, setLoadout] = useState<Cosmetic[]>([]);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [matrix, setMatrix] = useState<ConflictMatrix>({});
   const [shareNote, setShareNote] = useState("");
   const [chatAvailable, setChatAvailable] = useState(false);
   const saved = useSavedLoadouts();
@@ -53,6 +59,15 @@ export default function App() {
   // Hide the advisor entirely when the API has no LLM configured.
   useEffect(() => {
     fetchChatAvailable().then(setChatAvailable);
+  }, []);
+
+  // The conflict matrix is static, so fetch it once and filter locally afterwards. An
+  // empty matrix still detects same-region clashes, so a failure degrades rather than
+  // breaks.
+  useEffect(() => {
+    fetchConflictMatrix()
+      .then(setMatrix)
+      .catch(() => setMatrix({}));
   }, []);
 
   // Load a shared build from ?build=... once on mount, then strip the param.
@@ -116,6 +131,11 @@ export default function App() {
   const equippedIds = useMemo(
     () => new Set(loadout.map((c) => c.defindex)),
     [loadout]
+  );
+
+  const entries = useMemo(
+    () => applyFilters(cosmetics, filters, loadout, matrix),
+    [cosmetics, filters, loadout, matrix]
   );
 
   function equip(item: Cosmetic) {
@@ -215,14 +235,24 @@ export default function App() {
             />
           </div>
 
+          <FilterBar state={filters} onChange={setFilters} />
+
           {status ? (
             <p className="status">{status}</p>
+          ) : entries.length === 0 ? (
+            <p className="status">No cosmetics match these filters.</p>
           ) : (
             <div className="grid">
-              {cosmetics.map((c) => (
+              {entries.map(({ item: c, dimmed, clashesWith }) => (
                 <div
                   key={c.defindex}
-                  className={equippedIds.has(c.defindex) ? "cell selected" : "cell"}
+                  className={[
+                    "cell",
+                    equippedIds.has(c.defindex) ? "selected" : "",
+                    dimmed ? "dimmed" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   role="button"
                   tabIndex={0}
                   aria-pressed={equippedIds.has(c.defindex)}
@@ -240,6 +270,11 @@ export default function App() {
                     {c.image_url && <img src={c.image_url} alt="" loading="lazy" />}
                   </div>
                   <div className="name">{c.name}</div>
+                  {clashesWith.length > 0 && (
+                    <div className="clash-badge">
+                      clashes with {clashesWith.join(", ")}
+                    </div>
+                  )}
                   <div className="regions">
                     {c.equip_regions.map((r) => (
                       <span key={r} className="region">
