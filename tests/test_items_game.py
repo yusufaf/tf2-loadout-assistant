@@ -5,7 +5,11 @@ Per-item equip regions may be declared directly or inherited through a chain of
 top of the implicit same-region conflict.
 """
 
-from tf2_loadout.items_game import resolve_equip_regions, parse_conflict_matrix
+from tf2_loadout.items_game import (
+    parse_conflict_matrix,
+    resolve_equip_regions,
+    resolve_item_attrs,
+)
 
 # Shape mirrors vdf.loads(items_game.txt)["items_game"]: all scalars are strings,
 # blocks are nested dicts.
@@ -19,6 +23,14 @@ FIXTURE = {
         "valve": {"craft_class": "hat"},  # base prefab, no region
         "hat": {"equip_region": "hat"},
         "fancy": {"prefab": "hat"},  # nested
+        "paintable_hat": {
+            "equip_region": "hat",
+            "capabilities": {"paintable": "1"},
+        },
+        "spooky": {
+            "equip_region": "hat",
+            "holiday_restriction": "halloween_or_fullmoon",
+        },
     },
     "items": {
         "1": {"name": "Direct Hat", "equip_region": "hat"},
@@ -26,6 +38,34 @@ FIXTURE = {
         "3": {"name": "Prefab Hat", "prefab": "valve hat"},
         "4": {"name": "Nested Prefab", "prefab": "fancy"},
         "5": {"name": "Weapon", "item_class": "tf_weapon_x"},
+        "6": {
+            "name": "Own Paintable",
+            "equip_region": "hat",
+            "capabilities": {"paintable": "1"},
+        },
+        "7": {"name": "Inherited Paintable", "prefab": "paintable_hat"},
+        "8": {"name": "Inherited Spooky", "prefab": "spooky"},
+        "9": {
+            "name": "Styled",
+            "equip_region": "hat",
+            "styles": {
+                "0": {"name": "Default"},
+                "1": {"name": "Rogue"},
+            },
+        },
+        "10": {
+            "name": "Explicitly Not Paintable",
+            "prefab": "paintable_hat",
+            "capabilities": {"paintable": "0"},
+            # Carries a restriction too, so the item survives the all-defaults filter
+            # and the override is actually observable.
+            "holiday_restriction": "halloween_or_fullmoon",
+        },
+        "11": {
+            "name": "Weird Styles",
+            "equip_region": "hat",
+            "styles": "not_a_block",  # tolerate unexpected shapes
+        },
     },
 }
 
@@ -49,3 +89,36 @@ def test_conflict_matrix_is_symmetric():
     assert "whole_head" in matrix["hat"]
     assert "lenses" in matrix["glasses"]
     assert "glasses" in matrix["lenses"]
+
+
+def test_resolves_paintable_directly_and_via_prefab():
+    attrs = resolve_item_attrs(FIXTURE)
+
+    assert attrs[6].paintable is True
+    assert attrs[7].paintable is True  # inherited from the prefab
+    assert 1 not in attrs  # plain hat declares nothing -> omitted
+
+
+def test_own_capabilities_override_the_prefab():
+    attrs = resolve_item_attrs(FIXTURE)
+
+    # capabilities is a block, so the item's own block shadows the prefab's entirely.
+    assert attrs[10].paintable is False
+
+
+def test_resolves_holiday_restriction_via_prefab():
+    attrs = resolve_item_attrs(FIXTURE)
+
+    assert attrs[8].holiday_restriction == "halloween_or_fullmoon"
+
+
+def test_reads_style_names_in_declaration_order():
+    attrs = resolve_item_attrs(FIXTURE)
+
+    assert attrs[9].styles == ("Default", "Rogue")
+
+
+def test_tolerates_a_styles_value_that_is_not_a_block():
+    attrs = resolve_item_attrs(FIXTURE)
+
+    assert 11 not in attrs  # nothing parseable -> no attrs recorded, no exception

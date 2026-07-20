@@ -20,6 +20,19 @@ class Price:
 
 
 @dataclass(frozen=True)
+class ItemAttrs:
+    """Filterable item attributes resolved from items_game.txt.
+
+    Separate from ``Cosmetic`` because these come from a different source than
+    GetSchemaItems metadata and are resolved in one pass over the prefab tree.
+    """
+
+    paintable: bool = False
+    holiday_restriction: str | None = None
+    styles: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Cosmetic:
     """A TF2 cosmetic item.
 
@@ -34,3 +47,6 @@ class Cosmetic:
     used_by_classes: tuple[str, ...] = ()
     item_slot: str | None = None
     image_url: str | None = None
+    paintable: bool = False
+    holiday_restriction: str | None = None
+    styles: tuple[str, ...] = ()
