@@ -43,6 +43,8 @@ cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 
 **Item attributes are resolved separately from equip regions.** `resolve_item_attrs` uses `_flatten_with_prefabs` (own keys shadow inherited ones); `resolve_equip_regions` keeps its own recursion, which stops inheriting the moment a node declares any region. Don't merge the two — a generic key merge would union an item's own `equip_region` with a prefab's `equip_regions`, which is a different answer.
 
+**Paint and styles come from different feeds.** `capabilities.paintable` and `holiday_restriction` are in `items_game`; **style variants are not in `items_game` at all** — not on the item, not on its prefabs. They live in `GetSchemaItems` as a list of `{"name": ...}`, which is why `catalog._styles` reads them off the raw schema item rather than through `ItemAttrs`. This was found by counting real data (0 styled items) after a version that looked correct against fixtures, so verify attribute work against the live cache, not just tests.
+
 **Pricing is best-effort and frequently absent.** `pricing.py` reads only the Unique / Tradable / Craftable variant from backpack.tf `IGetPrices/v4`. The `Craftable` node is a list for most qualities but a dict keyed by effect for others — both forms are handled. Missing prices are normal; surface them as unknown rather than guessing.
 
 **Chat is stateless.** The client sends the whole transcript back each turn. `DEFAULT_MAX_REQUESTS = 25` is a runaway-loop guard sized against measurement (a plain turn is ~8 requests, a hard lore-checking turn hit 13), not a budget cap.

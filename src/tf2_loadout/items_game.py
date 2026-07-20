@@ -82,22 +82,6 @@ def _flatten_with_prefabs(node: dict, prefabs: dict, depth: int = 0) -> dict:
     return merged
 
 
-def _style_names(node: dict) -> tuple[str, ...]:
-    """Style display names, in declaration order.
-
-    The ``styles`` block is keyed by style index; each value is normally a block with a
-    ``name``. Unknown shapes yield no styles rather than raising.
-    """
-    styles = node.get("styles")
-    if not isinstance(styles, dict):
-        return ()
-    names: list[str] = []
-    for style in styles.values():
-        if isinstance(style, dict) and isinstance(style.get("name"), str):
-            names.append(style["name"])
-    return tuple(names)
-
-
 def _attrs(node: dict) -> ItemAttrs:
     capabilities = node.get("capabilities")
     paintable = isinstance(capabilities, dict) and capabilities.get("paintable") == "1"
@@ -105,7 +89,6 @@ def _attrs(node: dict) -> ItemAttrs:
     return ItemAttrs(
         paintable=paintable,
         holiday_restriction=restriction if isinstance(restriction, str) else None,
-        styles=_style_names(node),
     )
 
 

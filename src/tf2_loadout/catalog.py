@@ -48,6 +48,24 @@ def parse_schema_items(raw_items: list[dict]) -> list[Cosmetic]:
 _NO_ATTRS = ItemAttrs()
 
 
+def _styles(raw: dict) -> tuple[str, ...]:
+    """Style variant names for a schema item, in declaration order.
+
+    Styles live in GetSchemaItems, not items_game -- Valve's items_game feed carries no
+    style data at all. The value is a list of ``{"name": ...}`` objects. A handful of
+    items expose untranslated localization tokens (``TF_UnknownStyle``); they pass
+    through as-is rather than being guessed at.
+    """
+    styles = raw.get("styles")
+    if not isinstance(styles, list):
+        return ()
+    return tuple(
+        s["name"]
+        for s in styles
+        if isinstance(s, dict) and isinstance(s.get("name"), str)
+    )
+
+
 def merge_catalog(
     schema_items: list[dict],
     equip_regions: dict[int, frozenset[str]],
@@ -80,7 +98,7 @@ def merge_catalog(
                 image_url=raw.get("image_url"),
                 paintable=item_attrs.paintable,
                 holiday_restriction=item_attrs.holiday_restriction,
-                styles=item_attrs.styles,
+                styles=_styles(raw),
             )
         )
     return cosmetics
@@ -92,7 +110,7 @@ EQUIP_CACHE = "equip.json"
 # Bump whenever equip.json gains or changes a field. A cache written by an older version
 # would otherwise load fine and quietly report every item as unpaintable, style-less and
 # unrestricted -- wrong answers are worse than a loud failure.
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 
 class StaleCacheError(RuntimeError):
@@ -131,7 +149,6 @@ def save_catalog_cache(
             str(di): {
                 "paintable": a.paintable,
                 "holiday_restriction": a.holiday_restriction,
-                "styles": list(a.styles),
             }
             for di, a in resolve_item_attrs(items_game).items()
         },
@@ -201,7 +218,6 @@ class CatalogService:
             int(di): ItemAttrs(
                 paintable=a["paintable"],
                 holiday_restriction=a["holiday_restriction"],
-                styles=tuple(a["styles"]),
             )
             for di, a in equip["attrs"].items()
         }
