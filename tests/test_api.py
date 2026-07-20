@@ -207,3 +207,59 @@ def test_conflicts_endpoint_flags_same_region():
     assert len(conflicts) == 1
     assert {conflicts[0]["a"], conflicts[0]["b"]} == {1, 3}
     assert "hat" in conflicts[0]["regions"]
+
+
+# --- filter surfaces: attributes on the payload, the matrix, and uncapped lists ---
+
+
+def _matrix_client() -> TestClient:
+    """A client whose catalog carries a conflict matrix and a paintable, styled item."""
+    catalog = CatalogService(
+        [
+            Cosmetic(
+                1,
+                "Spy Fedora",
+                frozenset({"hat"}),
+                ("Spy",),
+                "misc",
+                "img1",
+                paintable=True,
+                styles=("Default", "Rogue"),
+            ),
+            Cosmetic(2, "Spy Mask", frozenset({"whole_head"}), ("Spy",), "misc", "img2"),
+        ],
+        conflict_matrix={
+            "whole_head": frozenset({"hat"}),
+            "hat": frozenset({"whole_head"}),
+        },
+    )
+    return TestClient(create_app(catalog, PricingService({})))
+
+
+def test_cosmetic_payload_includes_filter_attributes():
+    r = _matrix_client().get("/cosmetics")
+
+    assert r.status_code == 200
+    items = {c["defindex"]: c for c in r.json()["items"]}
+    assert items[1]["paintable"] is True
+    assert items[1]["styles"] == ["Default", "Rogue"]
+    assert items[1]["holiday_restriction"] is None
+    assert items[2]["paintable"] is False
+    assert items[2]["styles"] == []
+
+
+def test_equip_conflicts_returns_a_sorted_symmetric_matrix():
+    r = _matrix_client().get("/equip-conflicts")
+
+    assert r.status_code == 200
+    assert r.json()["matrix"] == {"hat": ["whole_head"], "whole_head": ["hat"]}
+
+
+def test_limit_zero_returns_everything():
+    client = _client()
+
+    everything = client.get("/cosmetics", params={"limit": 0}).json()["items"]
+    capped = client.get("/cosmetics", params={"limit": 1}).json()["items"]
+
+    assert len(capped) == 1
+    assert len(everything) == 3

@@ -41,6 +41,9 @@ class CosmeticOut(BaseModel):
     item_slot: str | None
     image_url: str | None
     price: PriceOut | None
+    paintable: bool
+    holiday_restriction: str | None
+    styles: list[str]
 
 
 class ConflictOut(BaseModel):
@@ -95,6 +98,9 @@ def create_app(
             item_slot=cosmetic.item_slot,
             image_url=cosmetic.image_url,
             price=PriceOut(**vars(price)) if price else None,
+            paintable=cosmetic.paintable,
+            holiday_restriction=cosmetic.holiday_restriction,
+            styles=list(cosmetic.styles),
         )
 
     @app.get("/healthz")
@@ -107,12 +113,35 @@ def create_app(
         }
 
     @app.get("/cosmetics")
-    def list_cosmetics(used_by: str | None = None, q: str | None = None, limit: int = 100) -> dict:
+    def list_cosmetics(
+        used_by: str | None = None, q: str | None = None, limit: int = 100
+    ) -> dict:
+        """List cosmetics.
+
+        ``limit=0`` means no limit — the browser filters client-side and needs the whole
+        class list, not a truncated page of it.
+        """
         items = catalog.for_class(used_by) if used_by else catalog.all()
         if q:
             needle = q.lower()
             items = [c for c in items if needle in c.name.lower()]
-        return {"items": [to_out(c) for c in items[:limit]]}
+        if limit > 0:
+            items = items[:limit]
+        return {"items": [to_out(c) for c in items]}
+
+    @app.get("/equip-conflicts")
+    def equip_conflicts() -> dict:
+        """The cross-region conflict matrix.
+
+        Static and small, so the client fetches it once and evaluates clashes locally
+        rather than round-tripping on every filter toggle.
+        """
+        return {
+            "matrix": {
+                region: sorted(others)
+                for region, others in catalog.conflict_matrix.items()
+            }
+        }
 
     @app.get("/cosmetics/{defindex}")
     def get_cosmetic(defindex: int) -> CosmeticOut:
