@@ -37,6 +37,12 @@ cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 
 **Conflicts are not just same-region overlap.** `conflicts.find_conflicts` tests every pair; two regions conflict if identical *or* listed against each other in the matrix (`whole_head` vs `hat`). Never judge a conflict by region name equality alone.
 
+**The conflict rule exists twice, on purpose.** `conflicts.py` is the source of truth; `frontend/src/conflicts.ts` is a deliberate port so filter toggles are instant instead of a round-trip per click. `conflicts.test.ts` mirrors `tests/test_conflicts.py` — change the rule in one place and the other's tests should fail. Filtering, sorting, and clash dimming all live in `frontend/src/filters.ts` as pure functions; `App.tsx` owns only the state.
+
+**The catalog cache is versioned.** `equip.json` carries a `version`, and `CatalogService.from_cache` raises `StaleCacheError` on a mismatch rather than serving a catalog where every item silently reads as unpaintable and style-less. There is no refresh script: rebuild with `uv run pytest --live`. Bump `CACHE_VERSION` whenever the file's shape changes.
+
+**Item attributes are resolved separately from equip regions.** `resolve_item_attrs` uses `_flatten_with_prefabs` (own keys shadow inherited ones); `resolve_equip_regions` keeps its own recursion, which stops inheriting the moment a node declares any region. Don't merge the two — a generic key merge would union an item's own `equip_region` with a prefab's `equip_regions`, which is a different answer.
+
 **Pricing is best-effort and frequently absent.** `pricing.py` reads only the Unique / Tradable / Craftable variant from backpack.tf `IGetPrices/v4`. The `Craftable` node is a list for most qualities but a dict keyed by effect for others — both forms are handled. Missing prices are normal; surface them as unknown rather than guessing.
 
 **Chat is stateless.** The client sends the whole transcript back each turn. `DEFAULT_MAX_REQUESTS = 25` is a runaway-loop guard sized against measurement (a plain turn is ~8 requests, a hard lore-checking turn hit 13), not a budget cap.
@@ -44,6 +50,8 @@ cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 ## Testing
 
 Agent tests drive Pydantic AI's `TestModel` / `FunctionModel`, and a session fixture pins `ALLOW_MODEL_REQUESTS = False` so no test can reach a provider by accident. Do not remove that fixture. `*_live.py` test modules and `@pytest.mark.live` cases are skipped unless `--live` is passed.
+
+The frontend has its own suite: `cd frontend && pnpm test` (Vitest). It covers the pure modules only — `conflicts.ts` and `filters.ts`. There is no DOM environment and no component test; keep logic out of components so it stays that way.
 
 ## Conventions
 
