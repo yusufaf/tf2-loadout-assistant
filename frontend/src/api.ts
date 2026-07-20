@@ -1,3 +1,5 @@
+import type { ConflictMatrix } from "./conflicts";
+
 export interface Price {
   currency: string;
   value: number;
@@ -26,11 +28,20 @@ export interface Conflict {
 const BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
 
 export async function fetchCosmetics(usedBy: string, q: string): Promise<Cosmetic[]> {
-  const params = new URLSearchParams({ used_by: usedBy, limit: "120" });
+  // limit=0 means "everything": filtering happens client-side, so a truncated page
+  // would silently hide items the user has filtered down to.
+  const params = new URLSearchParams({ used_by: usedBy, limit: "0" });
   if (q) params.set("q", q);
   const res = await fetch(`${BASE}/cosmetics?${params}`);
   if (!res.ok) throw new Error(`cosmetics ${res.status}`);
   return (await res.json()).items;
+}
+
+/** The cross-region conflict matrix. Static, so fetch it once and keep it. */
+export async function fetchConflictMatrix(): Promise<ConflictMatrix> {
+  const res = await fetch(`${BASE}/equip-conflicts`);
+  if (!res.ok) throw new Error(`equip-conflicts ${res.status}`);
+  return (await res.json()).matrix;
 }
 
 export async function fetchCosmetic(defindex: number): Promise<Cosmetic> {

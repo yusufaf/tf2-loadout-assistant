@@ -691,3 +691,80 @@ button {
     transition: none !important;
   }
 }
+
+/* --- filter bar --- */
+.filterbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.9rem;
+}
+.filter-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.filter-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+}
+.segmented {
+  display: inline-flex;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.segmented button,
+.filter-chip,
+.sort-dir,
+.filter-clear {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.65;
+}
+.segmented button {
+  border-radius: 0;
+  border-right-width: 0;
+}
+.segmented button:last-child {
+  border-right-width: 1px;
+}
+.filter-chip,
+.sort-dir,
+.filter-clear {
+  border-radius: 999px;
+}
+.segmented button[aria-pressed="true"],
+.filter-chip[aria-pressed="true"],
+.sort-dir[aria-pressed="true"] {
+  opacity: 1;
+  font-weight: 600;
+}
+.filter-chip:hover,
+.segmented button:hover,
+.sort-dir:hover,
+.filter-clear:hover {
+  opacity: 1;
+}
+
+/* Dimmed cells stay clickable -- the tray still stamps the conflict. */
+.cell.dimmed {
+  opacity: 0.38;
+}
+.cell.dimmed:hover,
+.cell.dimmed:focus-within {
+  opacity: 0.75;
+}
+.clash-badge {
+  font-size: 0.72rem;
+  line-height: 1.2;
+  opacity: 0.85;
+  margin-top: 0.15rem;
+}
