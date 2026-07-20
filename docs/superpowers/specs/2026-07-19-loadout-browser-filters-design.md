@@ -1,7 +1,8 @@
 # Loadout Browser Filters — Design
 
 **Date:** 2026-07-19
-**Status:** Approved, ready for implementation planning
+**Status:** Implemented. See the corrections at the foot of this document — one of this
+spec's factual claims turned out to be wrong.
 
 ## Goal
 
@@ -165,3 +166,32 @@ plus tests is the better trade for responsiveness.
   The version check makes this a clear error rather than a silent wrong answer.
 - **`items_game` shape surprises.** Style blocks in particular have several forms across
   items. Parsing should tolerate unknown shapes by yielding no styles rather than raising.
+
+## Corrections found during implementation
+
+**Styles are not in `items_game`.** This spec asserted that style variants are resolved
+from a `styles` block in `items_game.txt`, inherited through the prefab chain. They are
+not there at all — not on any item, not on any prefab. A live check found zero of 11,498
+items carrying a `styles` key, including Team Captain, which visibly has styles in game.
+
+Styles come from `GetSchemaItems`, as a list of `{"name": ...}` objects on the item: 580
+wearables, 2,216 style entries, of which only 9 are untranslated localization tokens.
+`ItemAttrs` therefore carries only `paintable` and `holiday_restriction`, and
+`catalog._styles` reads style names off the raw schema item.
+
+This survived a full fixture-based test suite, because the fixtures encoded the same
+wrong assumption as the spec. It was caught only by counting attributes in the rebuilt
+cache. Verify schema-parsing work against real data, not just fixtures.
+
+**`resolve_equip_regions` kept its own recursion.** The spec proposed folding it into the
+shared prefab flattener. A generic key-level merge would union an item's own
+`equip_region` with a prefab's `equip_regions`, where the existing code stops inheriting
+once a node declares a region of its own. The flattener serves the new attributes only.
+
+**Live tests never loaded `.env`.** A pre-existing bug, unrelated to this work but
+blocking it: only `test_agent_live.py` called `load_env()`, so `pytest --live` hit Steam
+and backpack.tf with an empty key and failed 403 even with a valid key on disk. A
+session fixture in `conftest.py` now loads `.env` when `--live` is passed, and only then.
+
+**Cache version is 3, not 2.** Moving styles out of the derived cache changed the `attrs`
+block shape a second time.

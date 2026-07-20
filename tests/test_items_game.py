@@ -45,14 +45,6 @@ FIXTURE = {
         },
         "7": {"name": "Inherited Paintable", "prefab": "paintable_hat"},
         "8": {"name": "Inherited Spooky", "prefab": "spooky"},
-        "9": {
-            "name": "Styled",
-            "equip_region": "hat",
-            "styles": {
-                "0": {"name": "Default"},
-                "1": {"name": "Rogue"},
-            },
-        },
         "10": {
             "name": "Explicitly Not Paintable",
             "prefab": "paintable_hat",
@@ -60,11 +52,6 @@ FIXTURE = {
             # Carries a restriction too, so the item survives the all-defaults filter
             # and the override is actually observable.
             "holiday_restriction": "halloween_or_fullmoon",
-        },
-        "11": {
-            "name": "Weird Styles",
-            "equip_region": "hat",
-            "styles": "not_a_block",  # tolerate unexpected shapes
         },
     },
 }
@@ -112,13 +99,9 @@ def test_resolves_holiday_restriction_via_prefab():
     assert attrs[8].holiday_restriction == "halloween_or_fullmoon"
 
 
-def test_reads_style_names_in_declaration_order():
+def test_ignores_items_declaring_nothing_filterable():
     attrs = resolve_item_attrs(FIXTURE)
 
-    assert attrs[9].styles == ("Default", "Rogue")
-
-
-def test_tolerates_a_styles_value_that_is_not_a_block():
-    attrs = resolve_item_attrs(FIXTURE)
-
-    assert 11 not in attrs  # nothing parseable -> no attrs recorded, no exception
+    # Style variants are absent from items_game entirely -- they come from
+    # GetSchemaItems, so nothing here should record them (see test_catalog.py).
+    assert set(attrs) == {6, 7, 8, 10}

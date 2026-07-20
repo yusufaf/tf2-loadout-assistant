@@ -117,18 +117,49 @@ def test_merge_excludes_wearables_without_resolved_regions():
 def test_merge_attaches_item_attrs_when_present():
     regions = {116: frozenset({"hat"})}
     attrs = {
-        116: ItemAttrs(
-            paintable=True,
-            holiday_restriction="halloween_or_fullmoon",
-            styles=("Default", "Rogue"),
-        )
+        116: ItemAttrs(paintable=True, holiday_restriction="halloween_or_fullmoon")
     }
 
     [cosmetic] = merge_catalog([SCHEMA_HAT], regions, attrs)
 
     assert cosmetic.paintable is True
     assert cosmetic.holiday_restriction == "halloween_or_fullmoon"
-    assert cosmetic.styles == ("Default", "Rogue")
+
+
+# Styles come from GetSchemaItems, not items_game -- the items_game feed carries no
+# style data at all, so this is the only place they can be read.
+SCHEMA_STYLED_HAT = {
+    "defindex": 52,
+    "item_class": "tf_wearable",
+    "item_name": "Batter's Helmet",
+    "used_by_classes": ["Scout"],
+    "styles": [
+        {"name": "Hat and Headphones"},
+        {"name": "No Hat and No Headphones"},
+        {"name": "No Hat"},
+    ],
+}
+
+
+def test_merge_reads_style_names_from_the_schema_item():
+    regions = {52: frozenset({"hat"})}
+
+    [cosmetic] = merge_catalog([SCHEMA_STYLED_HAT], regions)
+
+    assert cosmetic.styles == (
+        "Hat and Headphones",
+        "No Hat and No Headphones",
+        "No Hat",
+    )
+
+
+def test_merge_tolerates_a_malformed_styles_value():
+    regions = {52: frozenset({"hat"})}
+    malformed = {**SCHEMA_STYLED_HAT, "styles": "not_a_list"}
+
+    [cosmetic] = merge_catalog([malformed], regions)
+
+    assert cosmetic.styles == ()
 
 
 def test_merge_defaults_attrs_for_items_with_none():

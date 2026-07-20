@@ -61,7 +61,6 @@ CACHE_ITEMS_GAME = {
             "name": "Modest Pile of Hat",
             "equip_region": "hat",
             "capabilities": {"paintable": "1"},
-            "styles": {"0": {"name": "Default"}},
         }
     },
 }
@@ -71,6 +70,8 @@ CACHE_SCHEMA_ITEMS = [
         "item_class": "tf_wearable",
         "item_name": "The Modest Pile of Hat",
         "used_by_classes": ["Scout"],
+        # Styles ride along in the schema cache, not the derived equip cache.
+        "styles": [{"name": "Default"}],
     }
 ]
 

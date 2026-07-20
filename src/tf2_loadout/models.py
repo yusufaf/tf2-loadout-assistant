@@ -25,11 +25,13 @@ class ItemAttrs:
 
     Separate from ``Cosmetic`` because these come from a different source than
     GetSchemaItems metadata and are resolved in one pass over the prefab tree.
+
+    Style variants are *not* here: items_game carries no style data at all, so
+    ``Cosmetic.styles`` is read from GetSchemaItems instead (see ``catalog``).
     """
 
     paintable: bool = False
     holiday_restriction: str | None = None
-    styles: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
