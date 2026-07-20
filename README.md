@@ -8,8 +8,9 @@ loadouts from a described style ("look like a cop").
   equip-region conflict engine, backpack.tf pricing, and item lore reused from
   [`tf2-wiki-mcp`](https://github.com/yusufaf/tf2-wiki-mcp).
 - **Frontend:** React + Vite — a class browser and loadout tray with per-item cards
-  (image, price, conflict badges), local saved loadouts with share links, an advisor
-  chat panel, and a manual loadout.tf handoff link.
+  (image, price, conflict badges), filters for class scope, sort order, paint, styles
+  and Halloween restrictions, local saved loadouts with share links, an advisor chat
+  panel, and a manual loadout.tf handoff link.
 
 3D model rendering is intentionally **out of scope for v1** — see
 `../../.claude/plans/TF2-Loadout-Assistant-v1-Design.md`.
@@ -44,15 +45,21 @@ uv run tf2-loadout-api   # http://127.0.0.1:8000
 cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 ```
 
-The API serves `/cosmetics`, `/cosmetics/{defindex}`, `/lore/{defindex}`,
-`/loadout/conflicts`, `/chat`, and `/healthz`. Chat is stateless — the client sends the
-transcript back with each turn.
+The API serves `/cosmetics`, `/cosmetics/{defindex}`, `/equip-conflicts`,
+`/lore/{defindex}`, `/loadout/conflicts`, `/chat`, and `/healthz`. Chat is stateless —
+the client sends the transcript back with each turn.
+
+The catalog is served from `.cache/`, which is built by the live schema test. If the API
+exits with a `StaleCacheError`, the cache predates the current format: rebuild it with
+`STEAM_API_KEY` set and `uv run pytest --live`.
 
 ## Tests
 
 ```sh
 uv run pytest            # unit tests; never reaches a model or an external API
-uv run pytest --live     # also runs the tests that hit real APIs
+uv run pytest --live     # also runs the tests that hit real APIs, and rebuilds .cache
+
+cd frontend && pnpm test # Vitest, covering the pure filter and conflict modules
 ```
 
 Agent tests drive Pydantic AI's `TestModel` / `FunctionModel`, and a session fixture
