@@ -1820,7 +1820,7 @@ dev = [
 
 [[package]]
 name = "tf2-wiki-mcp"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "../tf2-wiki-mcp" }
 dependencies = [
     { name = "fastmcp" },

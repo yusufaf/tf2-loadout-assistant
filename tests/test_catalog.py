@@ -6,6 +6,7 @@ item. We keep only cosmetics (items that occupy an equip region) and map each in
 """
 
 from tf2_loadout.catalog import parse_schema_items, merge_catalog
+from tf2_loadout.models import ItemAttrs
 
 
 HAT = {
@@ -111,3 +112,31 @@ def test_merge_excludes_non_wearables_even_with_regions():
 
 def test_merge_excludes_wearables_without_resolved_regions():
     assert merge_catalog([SCHEMA_WEARABLE_NO_REGION], {}) == []
+
+
+def test_merge_attaches_item_attrs_when_present():
+    regions = {116: frozenset({"hat"})}
+    attrs = {
+        116: ItemAttrs(
+            paintable=True,
+            holiday_restriction="halloween_or_fullmoon",
+            styles=("Default", "Rogue"),
+        )
+    }
+
+    [cosmetic] = merge_catalog([SCHEMA_HAT], regions, attrs)
+
+    assert cosmetic.paintable is True
+    assert cosmetic.holiday_restriction == "halloween_or_fullmoon"
+    assert cosmetic.styles == ("Default", "Rogue")
+
+
+def test_merge_defaults_attrs_for_items_with_none():
+    # Most of the schema has no paint/holiday/style data at all.
+    regions = {116: frozenset({"hat"})}
+
+    [cosmetic] = merge_catalog([SCHEMA_HAT], regions, {})
+
+    assert cosmetic.paintable is False
+    assert cosmetic.holiday_restriction is None
+    assert cosmetic.styles == ()

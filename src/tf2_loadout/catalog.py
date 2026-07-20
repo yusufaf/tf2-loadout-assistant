@@ -10,8 +10,12 @@ import json
 from pathlib import Path
 
 from tf2_loadout.conflicts import Conflict, find_conflicts
-from tf2_loadout.items_game import parse_conflict_matrix, resolve_equip_regions
-from tf2_loadout.models import Cosmetic
+from tf2_loadout.items_game import (
+    parse_conflict_matrix,
+    resolve_equip_regions,
+    resolve_item_attrs,
+)
+from tf2_loadout.models import Cosmetic, ItemAttrs
 
 
 def _equip_regions(raw: dict) -> frozenset[str]:
@@ -41,15 +45,23 @@ def parse_schema_items(raw_items: list[dict]) -> list[Cosmetic]:
     ]
 
 
+_NO_ATTRS = ItemAttrs()
+
+
 def merge_catalog(
-    schema_items: list[dict], equip_regions: dict[int, frozenset[str]]
+    schema_items: list[dict],
+    equip_regions: dict[int, frozenset[str]],
+    attrs: dict[int, ItemAttrs] | None = None,
 ) -> list[Cosmetic]:
-    """Build cosmetics by merging GetSchemaItems metadata with items_game equip regions.
+    """Build cosmetics by merging GetSchemaItems metadata with items_game data.
 
     A cosmetic must be a wearable (``item_class`` starting ``tf_wearable``) and have
     resolved equip regions; this excludes weapons that happen to carry a region
     (e.g. mediguns) and wearables whose regions could not be resolved.
+
+    ``attrs`` is sparse: only items with a non-default attribute appear in it.
     """
+    attrs = attrs or {}
     cosmetics: list[Cosmetic] = []
     for raw in schema_items:
         if not str(raw.get("item_class", "")).startswith("tf_wearable"):
@@ -57,6 +69,7 @@ def merge_catalog(
         regions = equip_regions.get(raw["defindex"])
         if not regions:
             continue
+        item_attrs = attrs.get(raw["defindex"], _NO_ATTRS)
         cosmetics.append(
             Cosmetic(
                 defindex=raw["defindex"],
@@ -65,6 +78,9 @@ def merge_catalog(
                 used_by_classes=tuple(raw.get("used_by_classes", ())),
                 item_slot=raw.get("item_slot"),
                 image_url=raw.get("image_url"),
+                paintable=item_attrs.paintable,
+                holiday_restriction=item_attrs.holiday_restriction,
+                styles=item_attrs.styles,
             )
         )
     return cosmetics
