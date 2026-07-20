@@ -12,6 +12,9 @@ export interface Cosmetic {
   item_slot: string | null;
   image_url: string | null;
   price: Price | null;
+  paintable: boolean;
+  holiday_restriction: string | null;
+  styles: string[];
 }
 
 export interface Conflict {
