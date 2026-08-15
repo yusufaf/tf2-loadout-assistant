@@ -101,6 +101,18 @@ button {
   .bench {
     grid-template-columns: 1fr;
   }
+  /* Cap the item grid so the loadout tray is reachable without scrolling
+     past the whole catalog first. */
+  .grid {
+    max-height: 55vh;
+    overflow-y: auto;
+    border: 1px solid var(--paper-edge);
+    border-radius: 4px;
+    padding: 0.5rem;
+  }
+  .tray {
+    position: static;
+  }
 }
 
 /* ---- Class picker ---- */
@@ -183,6 +195,10 @@ button {
   gap: 0.35rem;
   box-shadow: var(--shadow);
   transition: transform 0.06s ease;
+  /* grid items default to min-width: auto, so a nowrap price + link pair
+     in .meta can force the track wider than its 1fr cap and blow out the
+     page horizontally -- min-width: 0 lets the flex children shrink instead. */
+  min-width: 0;
 }
 .cell:hover {
   transform: translateY(-2px);
@@ -752,6 +768,33 @@ button {
 .sort-dir:hover,
 .filter-clear:hover {
   opacity: 1;
+}
+
+.filter-row select {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.22rem 0.5rem;
+  border: 1px solid var(--ink-soft);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  accent-color: var(--blu-deep);
+}
+.filter-row select:focus-visible {
+  outline: 2px solid var(--blu-deep);
+  outline-offset: 1px;
+}
+
+.filter-clear {
+  opacity: 1;
+  border-color: var(--stamp);
+  background: var(--stamp);
+  color: var(--paper);
+  font-weight: 700;
+}
+.filter-clear:hover {
+  background: var(--red);
+  border-color: var(--red);
 }
 
 /* Dimmed cells stay clickable -- the tray still stamps the conflict. */
