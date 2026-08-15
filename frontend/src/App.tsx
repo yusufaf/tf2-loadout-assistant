@@ -294,7 +294,7 @@ export default function App() {
                       title={`${c.name} on backpack.tf`}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      backpack.tf ↗
+                      bp.tf ↗
                     </a>
                   </div>
                 </div>

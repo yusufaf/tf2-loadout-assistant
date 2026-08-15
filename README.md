@@ -8,9 +8,10 @@ loadouts from a described style ("look like a cop").
   equip-region conflict engine, backpack.tf pricing, and item lore reused from
   [`tf2-wiki-mcp`](https://github.com/yusufaf/tf2-wiki-mcp).
 - **Frontend:** React + Vite — a class browser and loadout tray with per-item cards
-  (image, price, conflict badges), filters for class scope, sort order, paint, styles
-  and Halloween restrictions, local saved loadouts with share links, an advisor chat
-  panel, and a manual loadout.tf handoff link.
+  (image, price, conflict badges), filters for class scope, sort order (including
+  price), a refined-metal budget cap, paint, styles and Halloween restrictions, local
+  saved loadouts with share links, a budget-aware advisor chat panel, and a manual
+  loadout.tf handoff link.
 
 3D model rendering is intentionally **out of scope for v1** — see
 `../../.claude/plans/TF2-Loadout-Assistant-v1-Design.md`.

@@ -98,6 +98,7 @@ async def test_search_cosmetics_schema_takes_class_and_query() -> None:
         "used_by",
         "query",
         "limit",
+        "max_ref",
     }
 
 
@@ -134,8 +135,36 @@ async def test_search_results_carry_prices() -> None:
     with capture_run_messages() as messages:
         await agent.run("dress my Spy", deps=_deps())
     items = {i["defindex"]: i for i in _tool_returns(messages, "search_cosmetics")[0]}
-    assert items[1]["price"] == {"currency": "metal", "value": 5.0, "value_high": 6.0}
+    assert items[1]["price"] == {
+        "currency": "metal",
+        "value": 5.0,
+        "value_high": 6.0,
+        "ref_value": 5.0,
+    }
     assert items[2]["price"] is None
+
+
+async def test_search_filters_by_max_ref() -> None:
+    # Below budget, over budget, and unpriced -- max_ref must drop the last two, since
+    # an unpriced item's affordability can't be verified.
+    catalog = CatalogService(
+        [
+            Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1"),
+            Cosmetic(2, "Spy Top Hat", frozenset({"hat"}), ("Spy",), "misc", "img2"),
+            Cosmetic(3, "Spy Cap", frozenset({"hat"}), ("Spy",), "misc", "img3"),
+        ]
+    )
+    pricing = PricingService({1: Price("metal", 5.0), 2: Price("metal", 50.0)})
+    deps = LoadoutDeps(catalog=catalog, pricing=pricing, lore=None)
+    agent = build_agent(
+        _calls_then_finishes("search_cosmetics", {"used_by": "Spy", "max_ref": 10})
+    )
+
+    with capture_run_messages() as messages:
+        await agent.run("cheap spy gear", deps=deps)
+
+    items = _tool_returns(messages, "search_cosmetics")[0]
+    assert [i["defindex"] for i in items] == [1]
 
 
 async def test_search_matches_any_keyword_in_a_multi_word_query() -> None:
@@ -202,7 +231,12 @@ async def test_get_cosmetic_joins_price() -> None:
     item = _tool_returns(messages, "get_cosmetic")[0]
     assert item["name"] == "Spy Fedora"
     assert item["equip_regions"] == ["hat"]
-    assert item["price"] == {"currency": "metal", "value": 5.0, "value_high": 6.0}
+    assert item["price"] == {
+        "currency": "metal",
+        "value": 5.0,
+        "value_high": 6.0,
+        "ref_value": 5.0,
+    }
 
 
 async def test_get_cosmetic_returns_none_for_unknown_defindex() -> None:

@@ -1,0 +1,19 @@
+Next work per Claude:
+
+Done (2026-08-15): the budget tier deferred from the filters spec — price sort,
+budget slider (maxRef, filters.ts), ref_value normalization (metal passthrough, keys
+converted via the live key price, hat/usd unknown), and a budget-aware advisor
+(search_cosmetics max_ref arg). All backend + frontend tests green (100 pytest, 31
+vitest). See CLAUDE.md's "Budget comparisons go through ref_value" note.
+
+Still open, no code yet:
+- Conflict-aware advisor: check_conflicts exists as a tool, but nothing forces the
+  agent to call it before finalizing suggested_defindexes -- a lazy model can still
+  hand back a clashing loadout. Consider validating suggested_defindexes server-side
+  (api.py) the same way hallucinated defindexes are dropped today.
+- prices.json has no CACHE_VERSION guard (equip.json does). Low risk today since the
+  shape only grew a derived field, but worth adding before the next pricing schema
+  change.
+- Agent still can't see the tray by defindex, only bare names in the chat prompt
+  (ChatPanel.tsx). A get_current_loadout tool or a LoadoutDeps field would let it
+  conflict-check and price-check the real tray instead of re-searching by name.

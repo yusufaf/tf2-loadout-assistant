@@ -33,6 +33,10 @@ class PriceOut(BaseModel):
     currency: str
     value: float
     value_high: float | None = None
+    # Normalized to refined metal so the frontend can sort/filter by budget without
+    # re-implementing the keys exchange rate; None when the currency (hat, usd) has no
+    # ref equivalent.
+    ref_value: float | None = None
 
 
 class CosmeticOut(BaseModel):
@@ -99,7 +103,11 @@ def create_app(
             used_by_classes=list(cosmetic.used_by_classes),
             item_slot=cosmetic.item_slot,
             image_url=cosmetic.image_url,
-            price=PriceOut(**vars(price)) if price else None,
+            price=(
+                PriceOut(**vars(price), ref_value=pricing.ref_value(price))
+                if price
+                else None
+            ),
             paintable=cosmetic.paintable,
             holiday_restriction=cosmetic.holiday_restriction,
             styles=list(cosmetic.styles),

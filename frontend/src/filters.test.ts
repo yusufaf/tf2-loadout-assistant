@@ -176,6 +176,72 @@ describe("sorting", () => {
   });
 });
 
+describe("price sorting", () => {
+  const CHEAP = cosmetic({
+    defindex: 10,
+    name: "Cheap Hat",
+    price: { currency: "metal", value: 2, value_high: null, ref_value: 2 },
+  });
+  const PRICEY = cosmetic({
+    defindex: 11,
+    name: "Pricey Hat",
+    price: { currency: "metal", value: 20, value_high: null, ref_value: 20 },
+  });
+  const UNPRICED = cosmetic({ defindex: 12, name: "Unpriced Hat" });
+  const items = [PRICEY, UNPRICED, CHEAP];
+
+  it("sorts cheapest first, unpriced items last", () => {
+    const state = { ...DEFAULT_FILTERS, sort: "price" as const };
+
+    expect(names(applyFilters(items, state, [], MATRIX))).toEqual([
+      "Cheap Hat",
+      "Pricey Hat",
+      "Unpriced Hat",
+    ]);
+  });
+
+  it("reverses the priced items but keeps unpriced last", () => {
+    const state = { ...DEFAULT_FILTERS, sort: "price" as const, desc: true };
+
+    expect(names(applyFilters(items, state, [], MATRIX))).toEqual([
+      "Pricey Hat",
+      "Cheap Hat",
+      "Unpriced Hat",
+    ]);
+  });
+});
+
+describe("budget filter", () => {
+  const CHEAP = cosmetic({
+    defindex: 10,
+    name: "Cheap Hat",
+    price: { currency: "metal", value: 2, value_high: null, ref_value: 2 },
+  });
+  const PRICEY = cosmetic({
+    defindex: 11,
+    name: "Pricey Hat",
+    price: { currency: "metal", value: 20, value_high: null, ref_value: 20 },
+  });
+  const UNPRICED = cosmetic({ defindex: 12, name: "Unpriced Hat" });
+  const items = [CHEAP, PRICEY, UNPRICED];
+
+  it("keeps only items at or under the cap", () => {
+    const state = { ...DEFAULT_FILTERS, maxRef: 5 };
+
+    expect(names(applyFilters(items, state, [], MATRIX))).toEqual(["Cheap Hat"]);
+  });
+
+  it("drops unpriced items once a cap is set -- affordability can't be verified", () => {
+    const state = { ...DEFAULT_FILTERS, maxRef: 100 };
+
+    expect(names(applyFilters(items, state, [], MATRIX))).not.toContain("Unpriced Hat");
+  });
+
+  it("is off by default", () => {
+    expect(names(applyFilters(items, DEFAULT_FILTERS, [], MATRIX))).toHaveLength(3);
+  });
+});
+
 describe("activeFilterCount", () => {
   it("is zero for the defaults", () => {
     expect(activeFilterCount(DEFAULT_FILTERS)).toBe(0);
@@ -190,5 +256,9 @@ describe("activeFilterCount", () => {
     };
 
     expect(activeFilterCount(state)).toBe(3);
+  });
+
+  it("counts an engaged budget cap", () => {
+    expect(activeFilterCount({ ...DEFAULT_FILTERS, maxRef: 10 })).toBe(1);
   });
 });

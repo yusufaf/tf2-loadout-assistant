@@ -11,7 +11,7 @@ import type { Cosmetic } from "./api";
 /** How exclusive an item is, within the selected class's items. */
 export type Scope = "any" | "one" | "multi" | "all";
 
-export type SortKey = "index" | "name";
+export type SortKey = "index" | "name" | "price";
 
 export interface FilterState {
   scope: Scope;
@@ -23,6 +23,10 @@ export interface FilterState {
   paintable: boolean;
   hasStyles: boolean;
   hideHalloween: boolean;
+  /** Refined-metal budget cap; null means no cap. Unpriced or non-ref-comparable
+   * items (a currency with no metal exchange rate) are dropped once set, since their
+   * affordability can't be verified. */
+  maxRef: number | null;
 }
 
 export const DEFAULT_FILTERS: FilterState = {
@@ -34,6 +38,7 @@ export const DEFAULT_FILTERS: FilterState = {
   paintable: false,
   hasStyles: false,
   hideHalloween: false,
+  maxRef: null,
 };
 
 export interface GridEntry {
@@ -61,6 +66,7 @@ function matchesScope(item: Cosmetic, scope: Scope): boolean {
 
 function compare(a: Cosmetic, b: Cosmetic, sort: SortKey): number {
   if (sort === "name") return a.name.localeCompare(b.name);
+  if (sort === "price") return (a.price?.ref_value ?? 0) - (b.price?.ref_value ?? 0);
   return a.defindex - b.defindex;
 }
 
@@ -84,11 +90,26 @@ export function applyFilters(
     if (state.paintable && !item.paintable) return false;
     if (state.hasStyles && item.styles.length === 0) return false;
     if (state.hideHalloween && item.holiday_restriction !== null) return false;
+    if (state.maxRef !== null) {
+      const rv = item.price?.ref_value;
+      if (rv == null || rv > state.maxRef) return false;
+    }
     return true;
   });
 
-  const sorted = [...kept].sort((a, b) => compare(a, b, state.sort));
-  if (state.desc) sorted.reverse();
+  // Unpriced items have nothing to sort by, so they always sink to the tail rather
+  // than jumping to the front when `desc` reverses the priced ones.
+  let sorted: Cosmetic[];
+  if (state.sort === "price") {
+    const priced = kept.filter((item) => item.price?.ref_value != null);
+    const unpriced = kept.filter((item) => item.price?.ref_value == null);
+    priced.sort((a, b) => compare(a, b, state.sort));
+    if (state.desc) priced.reverse();
+    sorted = [...priced, ...unpriced];
+  } else {
+    sorted = [...kept].sort((a, b) => compare(a, b, state.sort));
+    if (state.desc) sorted.reverse();
+  }
 
   return sorted.map((item) => {
     const clashesWith = state.noClashes
@@ -114,5 +135,6 @@ export function activeFilterCount(state: FilterState): number {
     state.paintable,
     state.hasStyles,
     state.hideHalloween,
+    state.maxRef !== null,
   ].filter(Boolean).length;
 }
