@@ -4,6 +4,9 @@ export interface Price {
   currency: string;
   value: number;
   value_high: number | null;
+  /** Normalized to refined metal for sort/budget comparisons; null when the currency
+   * (hat, usd) has no ref equivalent. */
+  ref_value: number | null;
 }
 
 export interface Cosmetic {

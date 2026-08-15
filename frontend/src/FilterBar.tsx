@@ -8,6 +8,12 @@ const SCOPES: { value: Scope; label: string; title: string }[] = [
   { value: "all", label: "All", title: "Wearable by all nine classes" },
 ];
 
+// Slider ceiling in refined metal. Not a hard catalog limit -- items above it just
+// require typing rather than dragging -- but 100 ref covers the overwhelming majority
+// of tradable cosmetics, so it stays the useful end of the range.
+const MAX_BUDGET_REF = 100;
+const DEFAULT_BUDGET_REF = 20;
+
 const TOGGLES: { key: keyof FilterState; label: string; title: string }[] = [
   {
     key: "noClashes",
@@ -59,6 +65,7 @@ export default function FilterBar({
         >
           <option value="index">Schema order</option>
           <option value="name">Name</option>
+          <option value="price">Price</option>
         </select>
         <button
           type="button"
@@ -69,6 +76,34 @@ export default function FilterBar({
         >
           {state.desc ? "↓" : "↑"}
         </button>
+
+        <span className="filter-label">Budget</span>
+        <button
+          type="button"
+          className="filter-chip"
+          title="Cap the grid to items priced at or under this many refined metal. Unpriced items and keys convert automatically; a currency with no ref rate is excluded rather than guessed."
+          aria-pressed={state.maxRef !== null}
+          onClick={() =>
+            onChange({
+              ...state,
+              maxRef: state.maxRef === null ? DEFAULT_BUDGET_REF : null,
+            })
+          }
+        >
+          {state.maxRef === null ? "Any price" : `≤ ${state.maxRef} ref`}
+        </button>
+        {state.maxRef !== null && (
+          <input
+            type="range"
+            className="budget-slider"
+            min={1}
+            max={MAX_BUDGET_REF}
+            step={1}
+            value={state.maxRef}
+            aria-label="Maximum price in refined metal"
+            onChange={(e) => onChange({ ...state, maxRef: Number(e.target.value) })}
+          />
+        )}
       </div>
 
       <div className="filter-row">

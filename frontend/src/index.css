@@ -797,6 +797,15 @@ button {
   border-color: var(--red);
 }
 
+.budget-slider {
+  width: 7rem;
+  accent-color: var(--blu-deep);
+}
+.budget-slider:focus-visible {
+  outline: 2px solid var(--blu-deep);
+  outline-offset: 1px;
+}
+
 /* Dimmed cells stay clickable -- the tray still stamps the conflict. */
 .cell.dimmed {
   opacity: 0.38;

@@ -41,8 +41,10 @@ Rules you must follow:
 - Item names are a weak guide to how something looks. When a style is ambiguous, call
   get_item_lore on two or three finalists rather than trusting a name that merely
   contains the right word.
-- search_cosmetics already returns each item's price. Use it to answer budget questions
-  directly; only call get_cosmetic when you need the class list or slot for one item.
+- search_cosmetics already returns each item's price and takes max_ref to filter by
+  budget directly (keys convert to ref automatically). Prefer that over filtering the
+  results yourself; only call get_cosmetic when you need the class list or slot for one
+  item.
 - Two cosmetics cannot be worn together when their equip regions overlap. Some regions
   clash across different names (for example whole_head against hat), so never judge this
   yourself.
@@ -51,7 +53,10 @@ Rules you must follow:
 
 Keep replies short and in the game's irreverent voice. Prices come from backpack.tf for
 the Unique / Tradable / Craftable variant, are denominated in refined metal or keys, and
-are often missing entirely -- say so rather than guessing.
+are often missing entirely -- say so rather than guessing. An item's ref_value is its
+price normalized to refined metal for comparison; it is null when the price can't be
+converted (no known key rate, or a currency like hat/usd with no metal equivalent) --
+never assume such an item fits a stated budget.
 """
 
 
@@ -86,6 +91,7 @@ def _price_out(pricing: PricingService, defindex: int) -> dict | None:
         "currency": price.currency,
         "value": price.value,
         "value_high": price.value_high,
+        "ref_value": pricing.ref_value(price),
     }
 
 
@@ -160,19 +166,31 @@ def build_agent(
         used_by: str | None = None,
         query: str | None = None,
         limit: int = 20,
+        max_ref: float | None = None,
     ) -> list[dict]:
-        """Find cosmetics, optionally narrowed to a class and a name substring.
+        """Find cosmetics, optionally narrowed to a class, a name substring, and a budget.
 
         Args:
             used_by: Class name to restrict to, e.g. "Spy". Omit to search all classes.
             query: Space-separated keywords; items matching the most are returned first.
             limit: Maximum items to return.
+            max_ref: Keep only items priced at or under this many refined metal. Keys
+                convert automatically; items with no ref-comparable price (unpriced, or
+                priced in a currency with no metal exchange rate) are dropped rather
+                than assumed affordable.
         """
         # catalog.search ignores the class filter, so compose the two by hand -- the
         # same way the /cosmetics route does.
         items = ctx.deps.catalog.for_class(used_by) if used_by else ctx.deps.catalog.all()
         if query:
             items = _keyword_matches(items, query)
+        if max_ref is not None:
+            items = [
+                c
+                for c in items
+                if (rv := ctx.deps.pricing.ref_value_for(c.defindex)) is not None
+                and rv <= max_ref
+            ]
         return [_summary(c, ctx.deps.pricing) for c in items[:limit]]
 
     @agent.tool

@@ -15,6 +15,10 @@ from tf2_loadout.models import Price
 UNIQUE_QUALITY = "6"
 PRICES_CACHE = "prices.json"
 
+# Mann Co. Supply Crate Key -- always metal-denominated, so it anchors the keys->ref
+# exchange rate used by ref_value below.
+KEY_DEFINDEX = 5021
+
 
 def _base_price(item: dict) -> Price | None:
     """Extract the Unique / Tradable / Craftable price from one item entry."""
@@ -57,9 +61,31 @@ class PricingService:
 
     def __init__(self, prices: dict[int, Price]):
         self._prices = prices
+        key_price = prices.get(KEY_DEFINDEX)
+        self._key_rate = (
+            key_price.value if key_price and key_price.currency == "metal" else None
+        )
 
     def __len__(self) -> int:
         return len(self._prices)
+
+    def ref_value(self, price: Price) -> float | None:
+        """Normalize a price to refined metal, or None if it can't be compared.
+
+        Keys convert through the current key price. Currencies backpack.tf uses for
+        items it can't price in metal or keys -- ``hat`` (valued against a specific
+        unusual/hat, not a fungible rate) and the rare ``usd`` listing -- have no ref
+        equivalent, so budget filtering must treat them as unknown rather than guess.
+        """
+        if price.currency == "metal":
+            return price.value
+        if price.currency == "keys" and self._key_rate is not None:
+            return price.value * self._key_rate
+        return None
+
+    def ref_value_for(self, defindex: int) -> float | None:
+        price = self._prices.get(defindex)
+        return self.ref_value(price) if price else None
 
     @classmethod
     def from_response(cls, response: dict) -> "PricingService":

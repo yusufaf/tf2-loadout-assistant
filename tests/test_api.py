@@ -56,7 +56,12 @@ def test_cosmetics_filtered_by_class_join_prices():
     assert r.status_code == 200
     items = {c["defindex"]: c for c in r.json()["items"]}
     assert set(items) == {1, 2}
-    assert items[1]["price"] == {"currency": "metal", "value": 5.0, "value_high": 6.0}
+    assert items[1]["price"] == {
+        "currency": "metal",
+        "value": 5.0,
+        "value_high": 6.0,
+        "ref_value": 5.0,
+    }
     assert items[2]["price"] is None  # no price known
 
 

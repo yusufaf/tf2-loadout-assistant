@@ -47,6 +47,8 @@ cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 
 **Pricing is best-effort and frequently absent.** `pricing.py` reads only the Unique / Tradable / Craftable variant from backpack.tf `IGetPrices/v4`. The `Craftable` node is a list for most qualities but a dict keyed by effect for others — both forms are handled. Missing prices are normal; surface them as unknown rather than guessing.
 
+**Budget comparisons go through `ref_value`, not raw price.** backpack.tf denominates prices in `metal`, `keys`, `hat`, or occasionally `usd`. `PricingService.ref_value` normalizes to refined metal by converting `keys` through the live price of defindex 5021 (the key itself, always metal-denominated); `hat` (priced against a specific item, not a fungible rate) and `usd` have no conversion and return `None`. This is what the frontend's price sort and budget slider (`filters.ts`'s `maxRef`) and the agent's `search_cosmetics(max_ref=...)` all filter on — an item with `ref_value: null` is dropped from a budget cap rather than assumed to fit, the same "unknown over guessed" rule as missing prices.
+
 **Chat is stateless.** The client sends the whole transcript back each turn. `DEFAULT_MAX_REQUESTS = 25` is a runaway-loop guard sized against measurement (a plain turn is ~8 requests, a hard lore-checking turn hit 13), not a budget cap.
 
 ## Testing
