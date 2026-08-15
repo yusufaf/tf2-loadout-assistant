@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import ModelMessagesTypeAdapter
@@ -25,6 +26,7 @@ from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
 
 CACHE_DIR = Path(__file__).resolve().parents[2] / ".cache"
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
 class PriceOut(BaseModel):
@@ -234,6 +236,14 @@ def create_app(
             ]
         }
 
+    # Serves the built frontend at the same origin as the API, so tf2.yusufaf.dev
+    # needs no CORS config and no separate static host. Mounted last so it never
+    # shadows the API routes above — Starlette matches explicit paths before a
+    # Mount. html=True serves index.html for "/"; there's no client-side router
+    # to fall back for, so a plain static mount is enough.
+    if FRONTEND_DIST.is_dir():
+        app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
+
     return app
 
 
@@ -257,7 +267,9 @@ def main() -> None:
     elif chat is not None:
         print(f"chat enabled: {settings.model}")
 
-    uvicorn.run(create_app(catalog, pricing, lore, chat), host="127.0.0.1", port=8000)
+    # 0.0.0.0, not 127.0.0.1: inside a container, Fly's proxy connects from
+    # outside the container's network namespace and can't reach a loopback bind.
+    uvicorn.run(create_app(catalog, pricing, lore, chat), host="0.0.0.0", port=8000)
 
 
 if __name__ == "__main__":

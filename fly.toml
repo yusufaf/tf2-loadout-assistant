@@ -1,0 +1,50 @@
+# tf2-loadout-assistant — single Fly app, stateless (no volume). The catalog
+# cache is baked into the image at build time (see Dockerfile); nothing is
+# written at runtime, so there's nothing to persist.
+#
+# `app` below is a placeholder. Fly app names are globally unique across all
+# Fly users — run `fly apps create tf2-loadout-af` (or your own name) and
+# update `app` here to match before deploying.
+#
+# See https://fly.io/docs/reference/configuration/
+
+app = 'tf2-loadout-af'
+primary_region = 'lax'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  # Chat is optional: the API serves the catalog fine with no LLM key, and
+  # /healthz reports "chat": false. To enable it:
+  #   fly secrets set --app tf2-loadout-af LLM_API_KEY=<your anthropic key>
+  # STEAM_API_KEY / BACKPACK_TF_API_KEY are dev-only — they're used by
+  # `uv run pytest --live` to refresh .cache/, not by the running app.
+  LLM_MODEL = 'anthropic:claude-opus-4-8'
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+
+  # Personal-use traffic: suspend when idle rather than pay for always-on.
+  auto_stop_machines = 'suspend'
+  min_machines_running = 0
+  auto_start_machines = true
+  processes = ['app']
+
+  [http_service.concurrency]
+    type = 'requests'
+    hard_limit = 25
+    soft_limit = 10
+
+  [[http_service.http_checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '15s'
+    method = 'GET'
+    path = '/healthz'
+
+[[vm]]
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 512
