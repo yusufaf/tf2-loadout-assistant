@@ -68,15 +68,23 @@ class ConflictRequest(BaseModel):
 # window (or our token budget) with an unbounded transcript.
 MAX_HISTORY_MESSAGES = 40
 
+# The bench holds a handful of cosmetics at most; this just guards against garbage input,
+# not a real usage ceiling.
+MAX_EQUIPPED = 16
+
 
 class ChatRequest(BaseModel):
     message: str
     history: list[dict] = Field(default_factory=list, max_length=MAX_HISTORY_MESSAGES)
+    # Defindexes currently on the player's bench, so the agent can carry them forward and
+    # conflict-check against them instead of re-guessing from names in the prompt.
+    equipped: list[int] = Field(default_factory=list, max_length=MAX_EQUIPPED)
 
 
 class ChatResponse(BaseModel):
     message: str
     suggested_defindexes: list[int]
+    conflicts: list[ConflictOut]
     history: list[dict]
 
 
@@ -112,6 +120,31 @@ def create_app(
             holiday_restriction=cosmetic.holiday_restriction,
             styles=list(cosmetic.styles),
         )
+
+    def _validate_suggestions(
+        defindexes: list[int],
+    ) -> tuple[list[int], list[ConflictOut]]:
+        """Turn a raw model suggestion into what the client can trust.
+
+        Weaker models name items they never looked up, so re-resolve against the catalog
+        first -- a hallucinated defindex never leaves the API. Then run the survivors
+        through the same conflict engine the tray uses: the agent is instructed to
+        self-check with check_conflicts, but a lazy model can skip that, so the server
+        checks again rather than trusting the prompt alone.
+        """
+        seen: set[int] = set()
+        suggested: list[int] = []
+        for di in defindexes:
+            if di in seen or not catalog.get(di):
+                continue
+            seen.add(di)
+            suggested.append(di)
+        cosmetics = [c for di in suggested if (c := catalog.get(di))]
+        conflicts = [
+            ConflictOut(a=c.a.defindex, b=c.b.defindex, regions=sorted(c.regions))
+            for c in catalog.conflicts(cosmetics)
+        ]
+        return suggested, conflicts
 
     @app.get("/healthz")
     def healthz() -> dict:
@@ -185,19 +218,18 @@ def create_app(
         except ValidationError:
             raise HTTPException(status_code=422, detail="malformed chat history")
         try:
-            result = await chat.reply(req.message, history)
+            result = await chat.reply(req.message, history, req.equipped)
         except UsageLimitExceeded:
             raise HTTPException(status_code=502, detail="the agent gave up mid-thought")
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"model error: {exc}")
-        # Weaker models name items they never looked up. Re-resolve against the catalog
-        # so a hallucinated defindex never leaves the API.
-        suggested = [
-            di for di in result.output.suggested_defindexes if catalog.get(di)
-        ]
+        suggested, conflicts = _validate_suggestions(
+            result.output.suggested_defindexes
+        )
         return ChatResponse(
             message=result.output.message,
             suggested_defindexes=suggested,
+            conflicts=conflicts,
             history=to_jsonable_python(result.all_messages()),
         )
 
@@ -216,17 +248,17 @@ def create_app(
             raise HTTPException(status_code=422, detail="malformed chat history")
 
         async def lines():
-            async for event in chat.stream_reply(req.message, history):
+            async for event in chat.stream_reply(req.message, history, req.equipped):
                 if event["kind"] == "final":
                     result = event["result"]
+                    suggested, conflicts = _validate_suggestions(
+                        result.output.suggested_defindexes
+                    )
                     event = {
                         "kind": "final",
                         "message": result.output.message,
-                        "suggested_defindexes": [
-                            di
-                            for di in result.output.suggested_defindexes
-                            if catalog.get(di)
-                        ],
+                        "suggested_defindexes": suggested,
+                        "conflicts": [c.model_dump() for c in conflicts],
                         "history": to_jsonable_python(result.all_messages()),
                     }
                 yield json.dumps(event) + "\n"

@@ -648,6 +648,17 @@ button {
   height: 22px;
   object-fit: contain;
 }
+.chat-chip.clash {
+  border-color: var(--stamp);
+  background: #f7e9e3;
+}
+
+.chat-clash-warning {
+  color: var(--stamp);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  margin: 0 0 0.4rem;
+}
 
 .chat-equip {
   background: var(--gold);

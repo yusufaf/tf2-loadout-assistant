@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
@@ -48,6 +48,12 @@ Rules you must follow:
 - Two cosmetics cannot be worn together when their equip regions overlap. Some regions
   clash across different names (for example whole_head against hat), so never judge this
   yourself.
+- Before finalizing suggested_defindexes, call check_conflicts on that exact set. If it
+  reports any clash, swap one of the clashing items out and check again -- never hand back
+  a suggestion you haven't confirmed is clash-free.
+- A suggestion replaces the player's whole loadout, not just the slot you changed. If they
+  ask to change one item, put the rest of their current loadout back into
+  suggested_defindexes too, or those items will be unequipped.
 - Put every defindex you intend to recommend into suggested_defindexes, and repeat the
   item names in your message so the player knows what they are.
 
@@ -81,6 +87,9 @@ class LoadoutDeps:
     catalog: CatalogService
     pricing: PricingService
     lore: LoreService | None = None
+    # Defindexes currently worn on the bench. Travels as an instruction, not a tool call,
+    # so the agent can't "forget" to ask for it -- it's just there every turn.
+    equipped: tuple[int, ...] = ()
 
 
 def _price_out(pricing: PricingService, defindex: int) -> dict | None:
@@ -159,6 +168,24 @@ def build_agent(
             # Don't invite calls to a tool that can only ever return null here.
             note += " Item lore is unavailable, so judge style from names alone."
         return note
+
+    @agent.instructions
+    def current_loadout(ctx: RunContext[LoadoutDeps]) -> str:
+        worn = [
+            c for di in ctx.deps.equipped if (c := ctx.deps.catalog.get(di))
+        ]
+        if not worn:
+            return "The player's bench is currently empty."
+        lines = "\n".join(
+            f"- {c.defindex}: {c.name} ({', '.join(sorted(c.equip_regions))})"
+            for c in worn
+        )
+        return (
+            "The player currently has these items equipped:\n"
+            f"{lines}\n"
+            "A suggestion replaces the whole bench, not just one slot -- carry forward "
+            "any of these you are not changing."
+        )
 
     @agent.tool
     def search_cosmetics(
@@ -280,17 +307,28 @@ class LoadoutAgentService:
         self._limits = UsageLimits(request_limit=max_requests)
 
     async def reply(
-        self, prompt: str, history: Sequence[ModelMessage] | None = None
+        self,
+        prompt: str,
+        history: Sequence[ModelMessage] | None = None,
+        equipped: Sequence[int] | None = None,
     ) -> AgentRunResult[LoadoutReply]:
         return await self._agent.run(
             prompt,
-            deps=self._deps,
+            deps=self._deps_for(equipped),
             message_history=history,
             usage_limits=self._limits,
         )
 
+    def _deps_for(self, equipped: Sequence[int] | None) -> LoadoutDeps:
+        # Replace, never mutate -- the service is shared across concurrent requests, and
+        # each turn's tray belongs only to that turn.
+        return replace(self._deps, equipped=tuple(equipped or ()))
+
     async def stream_reply(
-        self, prompt: str, history: Sequence[ModelMessage] | None = None
+        self,
+        prompt: str,
+        history: Sequence[ModelMessage] | None = None,
+        equipped: Sequence[int] | None = None,
     ) -> AsyncIterator[dict]:
         """Run a turn, yielding progress as it happens.
 
@@ -311,7 +349,7 @@ class LoadoutAgentService:
             try:
                 result = await self._agent.run(
                     prompt,
-                    deps=self._deps,
+                    deps=self._deps_for(equipped),
                     message_history=history,
                     usage_limits=self._limits,
                     event_stream_handler=on_events,

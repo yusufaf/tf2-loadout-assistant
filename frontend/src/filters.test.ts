@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FILTERS, applyFilters, activeFilterCount } from "./filters";
+import { DEFAULT_FILTERS, applyFilters, activeFilterCount, clashingIds } from "./filters";
 import type { ConflictMatrix } from "./conflicts";
-import type { Cosmetic } from "./api";
+import type { Conflict, Cosmetic } from "./api";
 
 const MATRIX: ConflictMatrix = { whole_head: ["hat"], hat: ["whole_head"] };
 
@@ -260,5 +260,20 @@ describe("activeFilterCount", () => {
 
   it("counts an engaged budget cap", () => {
     expect(activeFilterCount({ ...DEFAULT_FILTERS, maxRef: 10 })).toBe(1);
+  });
+});
+
+describe("clashingIds", () => {
+  it("collects both sides of every conflict", () => {
+    const conflicts: Conflict[] = [
+      { a: 1, b: 3, regions: ["hat"] },
+      { a: 3, b: 5, regions: ["whole_head"] },
+    ];
+
+    expect(clashingIds(conflicts)).toEqual(new Set([1, 3, 5]));
+  });
+
+  it("is empty for no conflicts", () => {
+    expect(clashingIds([])).toEqual(new Set());
   });
 });

@@ -10,7 +10,7 @@ import {
   type Cosmetic,
   type Conflict,
 } from "./api";
-import { DEFAULT_FILTERS, applyFilters, type FilterState } from "./filters";
+import { DEFAULT_FILTERS, applyFilters, clashingIds, type FilterState } from "./filters";
 import type { ConflictMatrix } from "./conflicts";
 import FilterBar from "./FilterBar";
 import { useSavedLoadouts } from "./useSavedLoadouts";
@@ -119,14 +119,7 @@ export default function App() {
     };
   }, [loadout]);
 
-  const clashing = useMemo(() => {
-    const s = new Set<number>();
-    for (const c of conflicts) {
-      s.add(c.a);
-      s.add(c.b);
-    }
-    return s;
-  }, [conflicts]);
+  const clashing = useMemo(() => clashingIds(conflicts), [conflicts]);
 
   const equippedIds = useMemo(
     () => new Set(loadout.map((c) => c.defindex)),

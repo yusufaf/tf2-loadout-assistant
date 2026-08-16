@@ -6,14 +6,20 @@ converted via the live key price, hat/usd unknown), and a budget-aware advisor
 (search_cosmetics max_ref arg). All backend + frontend tests green (100 pytest, 31
 vitest). See CLAUDE.md's "Budget comparisons go through ref_value" note.
 
+Done (2026-08-15): tray-aware advisor + server-side conflict validation.
+LoadoutDeps.equipped travels the real tray by defindex via a dynamic instruction
+(agent.py's current_loadout), not a tool call or flattened names, so the agent always
+sees it. ChatRequest.equipped carries it from ChatPanel.tsx (defindexes, not names --
+the prompt preamble now only states the class). api.py's _validate_suggestions
+re-checks the suggested set against catalog.conflicts server-side regardless of
+whether the agent called check_conflicts itself, same defence pattern as the
+hallucinated-defindex filter; ChatResponse/stream final event both carry a new
+`conflicts` field. Frontend surfaces it: clashing chips get a `.clash` class and a
+warning line above "Equip these" (still enabled -- equipping replaces the tray, which
+already stamps its own clashes). filters.ts gained clashingIds(), shared by App.tsx
+and ChatPanel.tsx. 107 pytest (+7), 33 vitest (+2), tsc clean, vite build clean.
+
 Still open, no code yet:
-- Conflict-aware advisor: check_conflicts exists as a tool, but nothing forces the
-  agent to call it before finalizing suggested_defindexes -- a lazy model can still
-  hand back a clashing loadout. Consider validating suggested_defindexes server-side
-  (api.py) the same way hallucinated defindexes are dropped today.
 - prices.json has no CACHE_VERSION guard (equip.json does). Low risk today since the
   shape only grew a derived field, but worth adding before the next pricing schema
   change.
-- Agent still can't see the tray by defindex, only bare names in the chat prompt
-  (ChatPanel.tsx). A get_current_loadout tool or a LoadoutDeps field would let it
-  conflict-check and price-check the real tray instead of re-searching by name.

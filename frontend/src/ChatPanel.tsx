@@ -4,8 +4,10 @@ import {
   streamChat,
   ChatUnavailableError,
   type ChatStreamEvent,
+  type Conflict,
   type Cosmetic,
 } from "./api";
+import { clashingIds } from "./filters";
 
 /** What each tool is doing, in the player's terms rather than the function's. */
 const TOOL_LABELS: Record<string, string> = {
@@ -20,6 +22,8 @@ interface Turn {
   text: string;
   /** Items the agent recommended, already resolved against the real catalog. */
   suggestions?: Cosmetic[];
+  /** Clashes within the suggested set, server-checked even if the agent skipped it. */
+  conflicts?: Conflict[];
 }
 
 interface Props {
@@ -56,15 +60,16 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
     setTurns((t) => [...t, { role: "user", text }]);
     setBusy(true);
 
-    // The server holds no session, so the bench state travels with the message.
-    const equipped = loadout.map((c) => c.name).join(", ") || "nothing yet";
-    const prompt = `[Current class: ${cls}. Equipped: ${equipped}.]\n${text}`;
+    // The server holds no session, so the class travels with the message; the tray
+    // itself travels structurally as defindexes, not flattened into the prompt.
+    const prompt = `[Current class: ${cls}.]\n${text}`;
+    const equipped = loadout.map((c) => c.defindex);
 
     let final: ChatStreamEvent | null = null;
     let failure = "";
 
     try {
-      await streamChat(prompt, history, (event) => {
+      await streamChat(prompt, history, equipped, (event) => {
         if (event.kind === "tool") {
           setProgress(TOOL_LABELS[event.name ?? ""] ?? "Working…");
         } else if (event.kind === "final") {
@@ -89,7 +94,12 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
         ).filter((i): i is Cosmetic => i !== null);
         setTurns((t) => [
           ...t,
-          { role: "bot", text: reply.message ?? "", suggestions: items },
+          {
+            role: "bot",
+            text: reply.message ?? "",
+            suggestions: items,
+            conflicts: reply.conflicts ?? [],
+          },
         ]);
       }
     } catch (err) {
@@ -111,30 +121,44 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
       <div className="chat-log" ref={logRef}>
         {turns.length === 0 && <p className="empty">{GREETING}</p>}
 
-        {turns.map((turn, i) => (
-          <div key={i} className={`chat-msg ${turn.role}`}>
-            <p>{turn.text}</p>
+        {turns.map((turn, i) => {
+          const clashing = clashingIds(turn.conflicts ?? []);
+          return (
+            <div key={i} className={`chat-msg ${turn.role}`}>
+              <p>{turn.text}</p>
 
-            {turn.suggestions && turn.suggestions.length > 0 && (
-              <div className="chat-suggestions">
-                <div className="chat-chips">
-                  {turn.suggestions.map((c) => (
-                    <span key={c.defindex} className="chat-chip" title={c.name}>
-                      {c.image_url && <img src={c.image_url} alt="" />}
-                      {c.name}
-                    </span>
-                  ))}
+              {turn.suggestions && turn.suggestions.length > 0 && (
+                <div className="chat-suggestions">
+                  <div className="chat-chips">
+                    {turn.suggestions.map((c) => (
+                      <span
+                        key={c.defindex}
+                        className={`chat-chip${clashing.has(c.defindex) ? " clash" : ""}`}
+                        title={c.name}
+                      >
+                        {c.image_url && <img src={c.image_url} alt="" />}
+                        {c.name}
+                      </span>
+                    ))}
+                  </div>
+                  {clashing.size > 0 && (
+                    <p className="chat-clash-warning">
+                      {turn.conflicts!.length} clash
+                      {turn.conflicts!.length > 1 ? "es" : ""} in this suggestion —
+                      equipping it will still stamp the tray.
+                    </p>
+                  )}
+                  <button
+                    className="chat-equip"
+                    onClick={() => onEquip(turn.suggestions!)}
+                  >
+                    Equip these
+                  </button>
                 </div>
-                <button
-                  className="chat-equip"
-                  onClick={() => onEquip(turn.suggestions!)}
-                >
-                  Equip these
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
+              )}
+            </div>
+          );
+        })}
 
         {busy && (
           <p className="chat-status">{progress || "Thinking it over…"}</p>

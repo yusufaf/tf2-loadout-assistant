@@ -402,3 +402,45 @@ async def test_service_round_trips_history() -> None:
     second = await service.reply("and a hat?", history=history)
     # The second run must see the first turn, not start cold.
     assert len(second.all_messages()) > len(history)
+
+
+def _instructions(messages: list[ModelMessage]) -> str:
+    from pydantic_ai.messages import ModelRequest
+
+    for message in messages:
+        if isinstance(message, ModelRequest) and message.instructions:
+            return message.instructions
+    raise AssertionError("no instructions on any request")
+
+
+async def test_current_loadout_lists_equipped_items_by_defindex() -> None:
+    service = LoadoutAgentService(build_agent(TestModel()), _deps())
+    with capture_run_messages() as messages:
+        await service.reply("dress my Spy", history=None, equipped=[1, 2])
+    text = _instructions(messages)
+    assert "1: Spy Fedora" in text
+    assert "2: Spy Shades" in text
+
+
+async def test_current_loadout_drops_unknown_defindexes() -> None:
+    service = LoadoutAgentService(build_agent(TestModel()), _deps())
+    with capture_run_messages() as messages:
+        await service.reply("dress my Spy", history=None, equipped=[1, 999])
+    text = _instructions(messages)
+    assert "1: Spy Fedora" in text
+    assert "999" not in text
+
+
+async def test_empty_loadout_says_the_bench_is_empty() -> None:
+    service = LoadoutAgentService(build_agent(TestModel()), _deps())
+    with capture_run_messages() as messages:
+        await service.reply("dress my Spy", history=None)
+    assert "bench is currently empty" in _instructions(messages)
+
+
+async def test_equipped_does_not_leak_into_the_shared_deps() -> None:
+    # deps are shared across concurrent requests; reply() must not mutate them.
+    deps = _deps()
+    service = LoadoutAgentService(build_agent(TestModel()), deps)
+    await service.reply("dress my Spy", history=None, equipped=[1, 2])
+    assert deps.equipped == ()
