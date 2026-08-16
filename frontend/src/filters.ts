@@ -6,7 +6,7 @@
  */
 
 import { clashingRegions, type ConflictMatrix } from "./conflicts";
-import type { Cosmetic } from "./api";
+import type { Conflict, Cosmetic } from "./api";
 
 /** How exclusive an item is, within the selected class's items. */
 export type Scope = "any" | "one" | "multi" | "all";
@@ -124,6 +124,16 @@ export function applyFilters(
       : [];
     return { item, dimmed: clashesWith.length > 0, clashesWith };
   });
+}
+
+/** Every defindex named on either side of a conflict list, for O(1) chip lookups. */
+export function clashingIds(conflicts: Conflict[]): Set<number> {
+  const s = new Set<number>();
+  for (const c of conflicts) {
+    s.add(c.a);
+    s.add(c.b);
+  }
+  return s;
 }
 
 /** How many filters are engaged, for the "clear" affordance. */

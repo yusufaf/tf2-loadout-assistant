@@ -118,7 +118,80 @@ def test_chat_returns_message_and_suggestions():
     body = r.json()
     assert body["message"] == "Try the fedora."
     assert body["suggested_defindexes"] == [1]
+    assert body["conflicts"] == []
     assert body["history"]
+
+
+def test_chat_reports_conflicts_in_the_suggested_set():
+    """A lazy model can skip check_conflicts; the server must catch it anyway."""
+
+    def model_fn(messages, info):
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    info.output_tools[0].name,
+                    # 1 and 3 both occupy "hat".
+                    {"message": "Two hats!", "suggested_defindexes": [1, 3]},
+                )
+            ]
+        )
+
+    catalog = CatalogService(
+        [
+            Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1"),
+            Cosmetic(3, "Scout Cap", frozenset({"hat"}), ("Scout",), "misc", "img3"),
+        ]
+    )
+    pricing = PricingService({})
+    chat = LoadoutAgentService(
+        build_agent(FunctionModel(model_fn)),
+        LoadoutDeps(catalog=catalog, pricing=pricing, lore=None),
+    )
+    client = TestClient(create_app(catalog, pricing, None, chat))
+    r = client.post("/chat", json={"message": "give me two hats"})
+    body = r.json()
+    assert body["suggested_defindexes"] == [1, 3]
+    assert len(body["conflicts"]) == 1
+    assert {body["conflicts"][0]["a"], body["conflicts"][0]["b"]} == {1, 3}
+
+
+def test_chat_forwards_equipped_to_the_agent():
+    """The agent must see the tray, not just bare names in the prompt."""
+
+    def model_fn(messages, info):
+        # The dynamic instruction renders equipped defindexes by name; echo one back
+        # so the test can tell the agent actually received it.
+        instructions = next(
+            (m.instructions for m in messages if getattr(m, "instructions", None)),
+            "",
+        )
+        assert "1: Spy Fedora" in instructions
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    info.output_tools[0].name,
+                    {"message": "ok", "suggested_defindexes": []},
+                )
+            ]
+        )
+
+    catalog = CatalogService(
+        [Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")]
+    )
+    pricing = PricingService({})
+    chat = LoadoutAgentService(
+        build_agent(FunctionModel(model_fn)),
+        LoadoutDeps(catalog=catalog, pricing=pricing, lore=None),
+    )
+    client = TestClient(create_app(catalog, pricing, None, chat))
+    r = client.post("/chat", json={"message": "hi", "equipped": [1]})
+    assert r.status_code == 200
+
+
+def test_chat_rejects_oversized_equipped_list():
+    client = _chat_client()
+    r = client.post("/chat", json={"message": "hi", "equipped": list(range(50))})
+    assert r.status_code == 422
 
 
 def test_chat_drops_defindexes_that_are_not_in_the_catalog():
@@ -185,6 +258,7 @@ def test_chat_stream_emits_tool_progress_then_a_final_line():
     assert final["kind"] == "final"
     assert final["message"] == "Try the fedora."
     assert final["suggested_defindexes"] == [1]
+    assert final["conflicts"] == []
     assert final["history"]
 
 

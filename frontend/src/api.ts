@@ -68,6 +68,7 @@ export async function fetchConflicts(defindexes: number[]): Promise<Conflict[]> 
 export interface ChatReply {
   message: string;
   suggested_defindexes: number[];
+  conflicts: Conflict[];
   history: unknown[];
 }
 
@@ -86,12 +87,13 @@ export async function fetchChatAvailable(): Promise<boolean> {
 
 export async function sendChat(
   message: string,
-  history: unknown[]
+  history: unknown[],
+  equipped: number[]
 ): Promise<ChatReply> {
   const res = await fetch(`${BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, history, equipped }),
   });
   if (res.status === 503) throw new ChatUnavailableError("chat not configured");
   if (!res.ok) throw new Error(`chat ${res.status}`);
@@ -104,6 +106,7 @@ export interface ChatStreamEvent {
   name?: string;
   message?: string;
   suggested_defindexes?: number[];
+  conflicts?: Conflict[];
   history?: unknown[];
   detail?: string;
 }
@@ -117,12 +120,13 @@ export interface ChatStreamEvent {
 export async function streamChat(
   message: string,
   history: unknown[],
+  equipped: number[],
   onEvent: (event: ChatStreamEvent) => void
 ): Promise<void> {
   const res = await fetch(`${BASE}/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, history, equipped }),
   });
   if (res.status === 503) throw new ChatUnavailableError("chat not configured");
   if (!res.ok || !res.body) throw new Error(`chat ${res.status}`);
