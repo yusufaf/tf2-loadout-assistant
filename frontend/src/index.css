@@ -51,7 +51,6 @@
   --bd-heavy: 3px solid var(--ink);
   --r-0: 0;
   --r-sm: 4px;
-  --r-pill: 999px;
   --focus: 3px solid var(--gold-deep);
   --dur: 60ms;
 }
@@ -268,6 +267,7 @@ button {
   border-radius: 50%;
   background: var(--gold-deep);
   color: #fff;
+  font-family: var(--font-display); /* real 700 — Inter only loads to 600 */
   font-size: var(--t-base);
   font-weight: 700;
   line-height: 1;

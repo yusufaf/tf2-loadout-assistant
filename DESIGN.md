@@ -36,7 +36,9 @@ tokens:
   radii:
     default: 0
     small: 4px      # .segmented, <select>, mobile grid scroll box
-    pill: 999px      # range-input thumb only — nothing else
+    # The budget range-input thumb renders pill-shaped from unstyled native
+    # browser defaults — there's no border-radius token to set, and none
+    # should be added; leave it native rather than reimplementing the thumb.
   borders:
     hair: "1px solid var(--ink)"
     default: "2px solid var(--ink)"
@@ -44,6 +46,7 @@ tokens:
   shadow:
     default: "0 2px 0 rgb(var(--ink-rgb) / .35), 0 6px 14px rgb(var(--ink-rgb) / .18)"
     hard: "2px 2px 0 rgb(var(--ink-rgb) / .3)"
+    bevel: "inset 1px 1px 0 rgb(255 255 255 / .5), inset -1px -1px 0 rgb(var(--ink-rgb) / .18)"
   motion:
     duration: 60ms
     property: transform only
@@ -125,7 +128,7 @@ Scale — use these seven sizes, nothing in between:
 | `xl` | 1.15 | totals sum |
 | `display` | `clamp(1.6rem, 4vw, 2.6rem)` | masthead h1 only |
 
-Known bug to fix, not repeat: `.filter-clear` and `.chat-status.error` apply `font-weight: 700` to Inter, which only loads up to 600 — that's a synthesized (browser-faked) bold. Use 600 as the ceiling for Inter anywhere; 700 is Oswald-only.
+Constraint to hold, not repeat: Inter only loads 400/500/600, so nothing on `--font-body` should request `font-weight: 700` — the browser fakes it (synthesized bold), which reads slightly blurred/misaligned. `.filter-clear` was dropped to 600 for this reason; `.equipped-tick` was switched to `--font-display` instead, since it wanted a real bold and Oswald loads 700. Follow the same pattern for new Inter-based elements: cap at 600, or switch to display type if 700 is genuinely needed.
 
 ## Spacing & layout
 
@@ -165,7 +168,7 @@ In-universe Mann Co. register in labels and status copy: "Try it on before you t
 
 ## Don'ts
 
-- No rounded pills or soft corners outside `.segmented`/`<select>` (4px) and the range-input thumb (999px).
+- No rounded pills or soft corners outside `.segmented`/`<select>` (4px) and the budget range-input's native thumb.
 - No soft, blurred `box-shadow` on interactive elements — shadows here are hard-offset, not diffuse.
 - No new font families. Oswald + Inter only; no shipping TF2 Build/Secondary.
 - No color outside the token table without deliberately extending it here first.
