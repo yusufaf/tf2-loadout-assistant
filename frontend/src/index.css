@@ -1,22 +1,58 @@
-/* Mann Co. Loadout Bench — TF2 propaganda/industrial identity. */
+/* Mann Co. Loadout Bench — TF2 propaganda/industrial identity. See DESIGN.md. */
 :root {
   --paper: #e8dcc0;
   --paper-dark: #d6c4a0;
   --paper-edge: #c2ab7e;
+  --paper-lit: #fffdf6;
+  --paper-lit-cool: #fffefa;
   --ink: #2b2620;
+  --ink-rgb: 43 38 32;
   --ink-soft: #5a4f40;
   --red: #b8383b;
   --blu: #5885a2;
   --blu-deep: #46708a;
   --gold: #e5c16e;
   --gold-deep: #cf9b45;
+  --gold-deep-rgb: 207 155 69;
+  --orange: #cf7336;
   --steel: #7c7c74;
+  --steel-rgb: 124 124 116;
   --stamp: #9e2b2b;
+  --blush: #f7e9e3;
 
-  --shadow: 0 2px 0 rgba(43, 38, 32, 0.35), 0 6px 14px rgba(43, 38, 32, 0.18);
+  --shadow: 0 2px 0 rgb(var(--ink-rgb) / 0.35), 0 6px 14px rgb(var(--ink-rgb) / 0.18);
+  --shadow-hard: 2px 2px 0 rgb(var(--ink-rgb) / 0.3);
+  --shadow-bevel: inset 1px 1px 0 rgb(255 255 255 / 0.5), inset -1px -1px 0 rgb(var(--ink-rgb) / 0.18);
 
   --font-display: "Oswald", system-ui, sans-serif;
   --font-body: "Inter", system-ui, sans-serif;
+
+  /* Type scale — see DESIGN.md */
+  --t-xs: 0.7rem;
+  --t-sm: 0.78rem;
+  --t-base: 0.85rem;
+  --t-md: 0.92rem;
+  --t-lg: 1.1rem;
+  --t-xl: 1.15rem;
+  --t-display: clamp(1.6rem, 4vw, 2.6rem);
+
+  /* Spacing scale — 4px unit */
+  --s0: 0.125rem;
+  --s1: 0.25rem;
+  --s2: 0.5rem;
+  --s3: 0.75rem;
+  --s4: 1rem;
+  --s5: 1.25rem;
+  --s6: 2rem;
+
+  /* Structure */
+  --bd-hair: 1px solid var(--ink);
+  --bd: 2px solid var(--ink);
+  --bd-heavy: 3px solid var(--ink);
+  --r-0: 0;
+  --r-sm: 4px;
+  --focus: 3px solid var(--gold-deep);
+  --dur: 60ms;
 }
 
 * {
@@ -30,8 +66,8 @@ body {
   background-color: var(--paper);
   background-image: radial-gradient(
     ellipse at top,
-    rgba(255, 255, 255, 0.35),
-    rgba(43, 38, 32, 0.08) 90%
+    rgb(255 255 255 / 0.35),
+    rgb(var(--ink-rgb) / 0.08) 90%
   );
   min-height: 100vh;
 }
@@ -47,7 +83,7 @@ h3,
 
 .label {
   text-transform: uppercase;
-  font-size: 0.72rem;
+  font-size: var(--t-xs);
   font-weight: 600;
   letter-spacing: 0.14em;
   color: var(--ink-soft);
@@ -62,21 +98,21 @@ button {
 .app {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 1.25rem 1.25rem 4rem;
+  padding: var(--s5) var(--s5) var(--s6);
 }
 
 .masthead {
-  border-bottom: 3px solid var(--ink);
-  padding-bottom: 0.75rem;
-  margin-bottom: 1.25rem;
+  border-bottom: var(--bd-heavy);
+  padding-bottom: var(--s3);
+  margin-bottom: var(--s5);
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 1rem;
+  gap: var(--s4);
   flex-wrap: wrap;
 }
 .masthead h1 {
-  font-size: clamp(1.6rem, 4vw, 2.6rem);
+  font-size: var(--t-display);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -87,14 +123,14 @@ button {
   font-family: var(--font-display);
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  font-size: 0.8rem;
+  font-size: var(--t-sm);
   color: var(--ink-soft);
 }
 
 .bench {
   display: grid;
   grid-template-columns: 1fr 340px;
-  gap: 1.25rem;
+  gap: var(--s5);
   align-items: start;
 }
 @media (max-width: 900px) {
@@ -107,8 +143,8 @@ button {
     max-height: 55vh;
     overflow-y: auto;
     border: 1px solid var(--paper-edge);
-    border-radius: 4px;
-    padding: 0.5rem;
+    border-radius: var(--r-sm);
+    padding: var(--s2);
   }
   .tray {
     position: static;
@@ -119,23 +155,27 @@ button {
 .classbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-bottom: 1rem;
+  gap: var(--s2);
+  margin-bottom: var(--s4);
 }
 .class-chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: var(--s2);
   background: var(--paper-dark);
-  border: 2px solid var(--ink);
+  border: var(--bd);
   color: var(--ink);
-  padding: 0.35rem 0.7rem;
-  font-size: 0.82rem;
+  padding: var(--s1) var(--s3);
+  font-size: var(--t-base);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  box-shadow: 2px 2px 0 rgba(43, 38, 32, 0.25);
-  transition: transform 0.05s ease;
+  box-shadow: var(--shadow-hard);
+  transition: transform var(--dur) ease;
+}
+.class-chip:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
 }
 .class-icon {
   height: 18px;
@@ -159,42 +199,42 @@ button {
 /* ---- Item grid ---- */
 .toolbar {
   display: flex;
-  gap: 0.6rem;
+  gap: var(--s2);
   align-items: center;
-  margin-bottom: 0.8rem;
+  margin-bottom: var(--s3);
 }
 .search {
   flex: 1;
   font-family: var(--font-body);
-  padding: 0.5rem 0.7rem;
-  border: 2px solid var(--ink);
-  background: #fffdf6;
-  font-size: 0.9rem;
+  padding: var(--s2) var(--s3);
+  border: var(--bd);
+  background: var(--paper-lit);
+  font-size: var(--t-md);
 }
 .search:focus-visible {
-  outline: 3px solid var(--gold-deep);
-  outline-offset: 1px;
+  outline: var(--focus);
+  outline-offset: 2px;
 }
 
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 0.7rem;
+  gap: var(--s3);
 }
 
 /* item cell — styled like an in-game backpack slot */
 .cell {
   position: relative;
-  background: linear-gradient(#fffdf6, var(--paper-dark));
-  border: 2px solid var(--ink);
+  background: linear-gradient(var(--paper-lit), var(--paper-dark));
+  border: var(--bd);
   border-top: 4px solid var(--gold-deep); /* quality edge */
-  padding: 0.5rem;
+  padding: var(--s2);
   text-align: left;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  box-shadow: var(--shadow);
-  transition: transform 0.06s ease;
+  gap: var(--s1);
+  box-shadow: var(--shadow), var(--shadow-bevel);
+  transition: transform var(--dur) ease;
   /* grid items default to min-width: auto, so a nowrap price + link pair
      in .meta can force the track wider than its 1fr cap and blow out the
      page horizontally -- min-width: 0 lets the flex children shrink instead. */
@@ -204,21 +244,21 @@ button {
   transform: translateY(-2px);
 }
 .cell:focus-visible {
-  outline: 3px solid var(--gold-deep);
+  outline: var(--focus);
   outline-offset: 2px;
 }
 .cell.selected {
   border-color: var(--gold-deep);
   border-top-color: var(--gold-deep);
-  box-shadow: 0 0 0 2px var(--gold-deep), var(--shadow);
+  box-shadow: 0 0 0 2px var(--gold-deep), var(--shadow), var(--shadow-bevel);
 }
 .cell.selected .thumb {
-  background-color: rgba(207, 155, 69, 0.14);
+  background-color: rgb(var(--gold-deep-rgb) / 0.14);
 }
 .equipped-tick {
   position: absolute;
-  top: 0.35rem;
-  right: 0.35rem;
+  top: var(--s1);
+  right: var(--s1);
   z-index: 1;
   display: grid;
   place-items: center;
@@ -227,18 +267,19 @@ button {
   border-radius: 50%;
   background: var(--gold-deep);
   color: #fff;
-  font-size: 0.8rem;
+  font-family: var(--font-display); /* real 700 — Inter only loads to 600 */
+  font-size: var(--t-base);
   font-weight: 700;
   line-height: 1;
-  box-shadow: 1px 1px 0 rgba(43, 38, 32, 0.4);
+  box-shadow: 1px 1px 0 rgb(var(--ink-rgb) / 0.4);
 }
 .cell .thumb {
   aspect-ratio: 1;
-  background: #fffefa
+  background: var(--paper-lit-cool)
     repeating-linear-gradient(
       45deg,
-      rgba(124, 124, 116, 0.06),
-      rgba(124, 124, 116, 0.06) 6px,
+      rgb(var(--steel-rgb) / 0.06),
+      rgb(var(--steel-rgb) / 0.06) 6px,
       transparent 6px,
       transparent 12px
     );
@@ -255,21 +296,21 @@ button {
 .cell .name {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 0.92rem;
+  font-size: var(--t-md);
   line-height: 1.05;
-  min-height: calc(2 * 0.92rem * 1.05); /* reserve 2 lines so chips align */
+  min-height: calc(2 * var(--t-md) * 1.05); /* reserve 2 lines so chips align */
 }
 .cell .meta {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 0.4rem;
+  gap: var(--s2);
   margin-top: auto; /* pin price row to card bottom regardless of name wrap */
 }
 .price {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: var(--t-base);
   color: var(--gold-deep);
   white-space: nowrap;
 }
@@ -278,7 +319,7 @@ button {
   font-style: italic;
 }
 .bptf {
-  font-size: 0.62rem;
+  font-size: var(--t-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -288,62 +329,67 @@ button {
   border-bottom: 1px solid transparent;
 }
 .bptf:hover {
-  color: var(--gold-deep);
-  border-bottom-color: var(--gold-deep);
+  color: var(--orange);
+  border-bottom-color: var(--orange);
+}
+.bptf:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
 }
 .regions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.2rem;
+  gap: var(--s1);
 }
 .region {
-  font-size: 0.62rem;
+  font-size: var(--t-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   background: var(--blu);
   color: #fff;
-  padding: 0.05rem 0.3rem;
-  border-radius: 2px;
+  padding: var(--s0) var(--s1);
+  border-radius: var(--r-0);
 }
 
 /* ---- Loadout tray ---- */
 .tray {
   position: sticky;
-  top: 1rem;
+  top: var(--s4);
   background: var(--paper-dark);
-  border: 3px solid var(--ink);
-  box-shadow: var(--shadow);
-  padding: 0.9rem;
+  border: var(--bd-heavy);
+  box-shadow: var(--shadow), var(--shadow-bevel);
+  padding: var(--s4);
 }
 .tray h2 {
   text-transform: uppercase;
-  font-size: 1.1rem;
-  border-bottom: 2px solid var(--ink);
-  padding-bottom: 0.4rem;
-  margin-bottom: 0.6rem;
+  font-size: var(--t-lg);
+  border-bottom: var(--bd);
+  padding-bottom: var(--s2);
+  margin-bottom: var(--s2);
 }
 .tray .empty {
   color: var(--ink-soft);
-  font-size: 0.88rem;
-  padding: 0.6rem 0;
+  font-size: var(--t-base);
+  padding: var(--s2) 0;
 }
 .equipped {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: var(--s2);
 }
 .slot {
   position: relative;
   display: flex;
-  gap: 0.55rem;
+  gap: var(--s2);
   align-items: center;
-  background: #fffdf6;
-  border: 2px solid var(--ink);
-  padding: 0.35rem 0.45rem;
+  background: var(--paper-lit);
+  border: var(--bd);
+  box-shadow: var(--shadow-bevel);
+  padding: var(--s1) var(--s2);
 }
 .slot.clash {
   border-color: var(--stamp);
-  background: #f7e9e3;
+  background: var(--blush);
 }
 .slot img {
   width: 38px;
@@ -354,7 +400,7 @@ button {
 .slot .slot-name {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: var(--t-base);
   line-height: 1.05;
   flex: 1;
 }
@@ -366,21 +412,26 @@ button {
   font-weight: 700;
   line-height: 1;
 }
+.slot .remove:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
 
 /* INCOMPATIBLE rubber stamp */
 .stamp {
-  margin: 0.7rem 0 0.2rem;
-  border: 3px solid var(--stamp);
+  margin: var(--s3) 0 var(--s1);
+  border: var(--bd-heavy);
+  border-color: var(--stamp);
   color: var(--stamp);
   font-family: var(--font-display);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   text-align: center;
-  padding: 0.35rem;
+  padding: var(--s1);
   transform: rotate(-4deg);
   opacity: 0.92;
-  font-size: 0.95rem;
+  font-size: var(--t-md);
 }
 .stamp small {
   display: block;
@@ -388,14 +439,14 @@ button {
   font-weight: 500;
   letter-spacing: 0.02em;
   text-transform: none;
-  font-size: 0.72rem;
-  margin-top: 0.15rem;
+  font-size: var(--t-xs);
+  margin-top: var(--s0);
 }
 
 .totals {
-  margin-top: 0.8rem;
+  margin-top: var(--s3);
   border-top: 2px dashed var(--ink-soft);
-  padding-top: 0.6rem;
+  padding-top: var(--s2);
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -403,85 +454,98 @@ button {
 .totals .sum {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 1.15rem;
+  font-size: var(--t-xl);
   color: var(--gold-deep);
 }
 
 .handoff {
   display: block;
   width: 100%;
-  margin-top: 0.8rem;
+  margin-top: var(--s3);
   text-align: center;
   background: var(--blu);
   color: #fff;
-  border: 2px solid var(--ink);
-  padding: 0.55rem;
+  border: var(--bd);
+  padding: var(--s2);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: var(--t-base);
   text-decoration: none;
-  box-shadow: 2px 2px 0 rgba(43, 38, 32, 0.3);
+  box-shadow: var(--shadow-hard);
 }
 .handoff:hover {
   background: var(--blu-deep);
 }
+.handoff:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
 
 .status {
-  font-size: 0.85rem;
+  font-size: var(--t-base);
   color: var(--ink-soft);
-  padding: 1rem 0;
+  padding: var(--s4) 0;
 }
 
 .site-footer {
-  margin-top: 2rem;
-  padding: 1rem 0 1.5rem;
+  margin-top: var(--s6);
+  padding: var(--s4) 0 var(--s5);
   border-top: 1px solid var(--paper-edge);
   color: var(--steel);
-  font-size: 0.72rem;
+  font-size: var(--t-xs);
   line-height: 1.5;
 }
 .site-footer p {
-  margin: 0.25rem 0;
+  margin: var(--s1) 0;
 }
 .site-footer a {
   color: var(--steel);
   text-decoration: underline;
 }
 .site-footer a:hover {
-  color: var(--gold-deep);
+  color: var(--orange);
+}
+.site-footer a:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
 }
 
 /* ---- Save / Share actions ---- */
 .loadout-actions {
   display: flex;
-  gap: 0.5rem;
-  margin-top: 0.6rem;
+  gap: var(--s2);
+  margin-top: var(--s2);
 }
 .save-btn,
 .share-btn {
   flex: 1;
   background: var(--gold-deep);
   color: var(--ink);
-  border: 2px solid var(--ink);
-  padding: 0.5rem;
+  border: var(--bd);
+  padding: var(--s2);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: 600;
-  font-size: 0.82rem;
-  box-shadow: 2px 2px 0 rgba(43, 38, 32, 0.3);
+  font-size: var(--t-base);
+  box-shadow: var(--shadow-hard);
 }
 .save-btn:hover,
 .share-btn:hover {
   background: var(--gold);
+}
+.save-btn:focus-visible,
+.share-btn:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
 }
 .share-btn {
   background: var(--paper);
 }
 
 .share-note {
-  margin: 0.5rem 0 0;
-  font-size: 0.78rem;
+  margin: var(--s2) 0 0;
+  font-size: var(--t-sm);
   font-weight: 600;
   color: var(--blu-deep);
   word-break: break-all;
@@ -489,37 +553,41 @@ button {
 
 /* ---- Saved loadouts ---- */
 .saved {
-  margin-top: 1rem;
-  border-top: 2px solid var(--ink);
-  padding-top: 0.7rem;
+  margin-top: var(--s4);
+  border-top: var(--bd);
+  padding-top: var(--s3);
 }
 .saved-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
+  gap: var(--s2);
+  margin-bottom: var(--s2);
 }
 .saved-head h3 {
   text-transform: uppercase;
-  font-size: 0.95rem;
+  font-size: var(--t-md);
 }
 .saved-io {
   display: flex;
-  gap: 0.3rem;
+  gap: var(--s1);
 }
 .saved-io button {
   background: var(--paper);
-  border: 2px solid var(--ink);
+  border: var(--bd);
   color: var(--ink);
-  padding: 0.2rem 0.5rem;
-  font-size: 0.7rem;
+  padding: var(--s1) var(--s2);
+  font-size: var(--t-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-weight: 600;
 }
 .saved-io button:hover {
   background: var(--paper-edge);
+}
+.saved-io button:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
 }
 
 .saved-list {
@@ -528,27 +596,27 @@ button {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: var(--s2);
 }
 .saved-item {
-  background: #fffdf6;
-  border: 2px solid var(--ink);
-  padding: 0.4rem 0.5rem;
+  background: var(--paper-lit);
+  border: var(--bd);
+  padding: var(--s2);
 }
 .saved-meta {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: var(--s2);
 }
 .saved-name {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: var(--t-md);
 }
 .saved-meta small {
   color: var(--ink-soft);
-  font-size: 0.7rem;
+  font-size: var(--t-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -556,21 +624,25 @@ button {
 .saved-buttons {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
-  margin-top: 0.4rem;
+  gap: var(--s1);
+  margin-top: var(--s2);
 }
 .saved-buttons button {
   background: var(--paper-dark);
-  border: 1px solid var(--ink);
+  border: var(--bd-hair);
   color: var(--ink);
-  padding: 0.18rem 0.45rem;
-  font-size: 0.68rem;
+  padding: var(--s0) var(--s2);
+  font-size: var(--t-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-weight: 600;
 }
 .saved-buttons button:hover {
   background: var(--gold);
+}
+.saved-buttons button:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
 }
 .saved-buttons button.danger {
   color: var(--stamp);
@@ -582,14 +654,14 @@ button {
 
 /* ---- Advisor chat ---- */
 .chat {
-  margin-top: 1rem;
-  border-top: 2px solid var(--ink);
-  padding-top: 0.7rem;
+  margin-top: var(--s4);
+  border-top: var(--bd);
+  padding-top: var(--s3);
 }
 .chat h3 {
   text-transform: uppercase;
-  font-size: 0.95rem;
-  margin-bottom: 0.5rem;
+  font-size: var(--t-md);
+  margin-bottom: var(--s2);
 }
 
 .chat-log {
@@ -597,14 +669,14 @@ button {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
+  gap: var(--s2);
+  margin-bottom: var(--s2);
 }
 
 .chat-msg {
-  border: 2px solid var(--ink);
-  padding: 0.4rem 0.55rem;
-  font-size: 0.82rem;
+  border: var(--bd);
+  padding: var(--s2);
+  font-size: var(--t-base);
   line-height: 1.45;
 }
 .chat-msg p {
@@ -613,34 +685,34 @@ button {
 }
 .chat-msg.user {
   background: var(--paper-dark);
-  margin-left: 1.25rem;
+  margin-left: var(--s5);
 }
 .chat-msg.bot {
-  background: #fffdf6;
+  background: var(--paper-lit);
   border-left: 5px solid var(--blu);
-  margin-right: 1.25rem;
+  margin-right: var(--s5);
 }
 
 .chat-suggestions {
-  margin-top: 0.5rem;
-  padding-top: 0.45rem;
+  margin-top: var(--s2);
+  padding-top: var(--s2);
   border-top: 1px dashed var(--paper-edge);
 }
 .chat-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
-  margin-bottom: 0.4rem;
+  gap: var(--s1);
+  margin-bottom: var(--s2);
 }
 .chat-chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--s1);
   background: var(--paper);
-  border: 1px solid var(--ink);
-  padding: 0.15rem 0.35rem;
+  border: var(--bd-hair);
+  padding: var(--s0) var(--s1);
   font-family: var(--font-display);
-  font-size: 0.7rem;
+  font-size: var(--t-xs);
   font-weight: 600;
 }
 .chat-chip img {
@@ -650,22 +722,22 @@ button {
 }
 .chat-chip.clash {
   border-color: var(--stamp);
-  background: #f7e9e3;
+  background: var(--blush);
 }
 
 .chat-clash-warning {
   color: var(--stamp);
-  font-size: 0.72rem;
+  font-size: var(--t-xs);
   line-height: 1.2;
-  margin: 0 0 0.4rem;
+  margin: 0 0 var(--s2);
 }
 
 .chat-equip {
   background: var(--gold);
-  border: 2px solid var(--ink);
+  border: var(--bd);
   color: var(--ink);
-  padding: 0.22rem 0.6rem;
-  font-size: 0.7rem;
+  padding: var(--s1) var(--s2);
+  font-size: var(--t-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-weight: 700;
@@ -674,26 +746,34 @@ button {
 .chat-equip:hover {
   background: var(--gold-deep);
 }
+.chat-equip:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
 
 .chat-form {
   display: flex;
-  gap: 0.4rem;
+  gap: var(--s2);
 }
 .chat-input {
-  font-size: 0.82rem;
+  font-size: var(--t-base);
 }
 .chat-send {
   background: var(--blu);
-  border: 2px solid var(--ink);
-  color: #fffdf6;
-  padding: 0.3rem 0.7rem;
-  font-size: 0.75rem;
+  border: var(--bd);
+  color: var(--paper-lit);
+  padding: var(--s1) var(--s3);
+  font-size: var(--t-sm);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-weight: 700;
 }
 .chat-send:hover:not(:disabled) {
   background: var(--blu-deep);
+}
+.chat-send:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
 }
 .chat-send:disabled,
 .chat-input:disabled {
@@ -703,7 +783,7 @@ button {
 
 .chat-status {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--t-sm);
   color: var(--ink-soft);
   font-style: italic;
 }
@@ -723,24 +803,24 @@ button {
 .filterbar {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  margin: 0.5rem 0 0.9rem;
+  gap: var(--s2);
+  margin: var(--s2) 0 var(--s4);
 }
 .filter-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: var(--s2);
 }
 .filter-label {
-  font-size: 0.78rem;
+  font-size: var(--t-sm);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   opacity: 0.7;
 }
 .segmented {
   display: inline-flex;
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   overflow: hidden;
 }
 .segmented button,
@@ -748,16 +828,15 @@ button {
 .sort-dir,
 .filter-clear {
   font: inherit;
-  font-size: 0.85rem;
-  padding: 0.25rem 0.6rem;
-  border: 1px solid currentColor;
-  background: transparent;
-  color: inherit;
+  font-size: var(--t-base);
+  padding: var(--s1) var(--s2);
+  border: var(--bd-hair);
+  background: var(--paper);
+  color: var(--ink);
   cursor: pointer;
-  opacity: 0.65;
 }
 .segmented button {
-  border-radius: 0;
+  border-radius: var(--r-0);
   border-right-width: 0;
 }
 .segmented button:last-child {
@@ -766,42 +845,49 @@ button {
 .filter-chip,
 .sort-dir,
 .filter-clear {
-  border-radius: 999px;
+  border-radius: var(--r-0);
 }
 .segmented button[aria-pressed="true"],
 .filter-chip[aria-pressed="true"],
 .sort-dir[aria-pressed="true"] {
-  opacity: 1;
+  background: var(--red);
+  color: #fff;
   font-weight: 600;
 }
 .filter-chip:hover,
 .segmented button:hover,
 .sort-dir:hover,
 .filter-clear:hover {
-  opacity: 1;
+  background: var(--paper-dark);
+}
+.segmented button:focus-visible,
+.filter-chip:focus-visible,
+.sort-dir:focus-visible,
+.filter-clear:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
 }
 
 .filter-row select {
   font: inherit;
-  font-size: 0.85rem;
-  padding: 0.22rem 0.5rem;
+  font-size: var(--t-base);
+  padding: var(--s1) var(--s2);
   border: 1px solid var(--ink-soft);
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   background: var(--paper);
   color: var(--ink);
   accent-color: var(--blu-deep);
 }
 .filter-row select:focus-visible {
-  outline: 2px solid var(--blu-deep);
-  outline-offset: 1px;
+  outline: var(--focus);
+  outline-offset: 2px;
 }
 
 .filter-clear {
-  opacity: 1;
   border-color: var(--stamp);
   background: var(--stamp);
   color: var(--paper);
-  font-weight: 700;
+  font-weight: 600;
 }
 .filter-clear:hover {
   background: var(--red);
@@ -813,8 +899,8 @@ button {
   accent-color: var(--blu-deep);
 }
 .budget-slider:focus-visible {
-  outline: 2px solid var(--blu-deep);
-  outline-offset: 1px;
+  outline: var(--focus);
+  outline-offset: 2px;
 }
 
 /* Dimmed cells stay clickable -- the tray still stamps the conflict. */
@@ -826,8 +912,8 @@ button {
   opacity: 0.75;
 }
 .clash-badge {
-  font-size: 0.72rem;
+  font-size: var(--t-xs);
   line-height: 1.2;
   opacity: 0.85;
-  margin-top: 0.15rem;
+  margin-top: var(--s0);
 }
