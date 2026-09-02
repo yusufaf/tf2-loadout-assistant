@@ -63,3 +63,4 @@ The frontend has its own suite: `cd frontend && pnpm test` (Vitest). It covers t
 - Module docstrings explain the *why*. Comments mark where an external schema is weird (the VDF duplicate-key form, the backpack.tf list/dict split) — those are load-bearing, not noise.
 - `SYSTEM_PROMPT` in `agent.py` is product surface. Its rules encode real failure modes observed with weaker models; change it deliberately and re-run the agent tests.
 - Never commit `.env` (it's gitignored). `.env.example` documents the keys.
+- Frontend visual work (`frontend/src/index.css` and any new component styling) follows `DESIGN.md` — it's the source of truth for what the `:root` tokens mean and when to use them, not just what they are.

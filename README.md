@@ -13,8 +13,9 @@ loadouts from a described style ("look like a cop").
   saved loadouts with share links, a budget-aware advisor chat panel, and a manual
   loadout.tf handoff link.
 
-3D model rendering is intentionally **out of scope for v1** — see
-`../../.claude/plans/TF2-Loadout-Assistant-v1-Design.md`.
+3D model rendering is intentionally **out of scope for v1**.
+
+Frontend visual/styling conventions live in [`DESIGN.md`](./DESIGN.md).
 
 ## The advisor is provider-agnostic
 
