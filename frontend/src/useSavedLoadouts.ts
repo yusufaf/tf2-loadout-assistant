@@ -33,6 +33,13 @@ function markPromptedToCopy(): void {
   }
 }
 
+// Module-level, not per-hook-instance: guards the copy-to-account flow (the confirm
+// dialog + the create loop) against running twice concurrently -- React StrictMode's
+// synchronous double-invoke of this effect in dev being the main way that'd happen.
+// Doubling the read-only hydration below is harmless; doubling window.confirm() or
+// the loadout-creation loop is not.
+let copyPromptInFlight = false;
+
 // Picks between the localStorage utility and the Steam-account-backed API by
 // sign-in state, behind the identical UseSavedLoadouts interface -- the swap seam
 // savedLoadouts.ts documented before Steam sign-in existed. App.tsx doesn't branch
@@ -61,24 +68,34 @@ export function useSavedLoadouts(signedIn: boolean): UseSavedLoadouts {
         return;
       }
       const local = store.loadAll();
-      if (remoteLoadouts.length === 0 && local.length > 0 && !alreadyPromptedToCopy()) {
-        const copy = window.confirm(
-          `Copy your ${local.length} locally saved loadout${local.length === 1 ? "" : "s"} to your Steam account?`
-        );
-        markPromptedToCopy();
-        if (copy) {
-          for (const l of local) {
+      if (
+        remoteLoadouts.length === 0 &&
+        local.length > 0 &&
+        !alreadyPromptedToCopy() &&
+        !copyPromptInFlight
+      ) {
+        copyPromptInFlight = true;
+        try {
+          const copy = window.confirm(
+            `Copy your ${local.length} locally saved loadout${local.length === 1 ? "" : "s"} to your Steam account?`
+          );
+          markPromptedToCopy();
+          if (copy) {
+            for (const l of local) {
+              try {
+                await remote.create(l.name, l.cls, l.items);
+              } catch {
+                // best-effort -- a failed copy just leaves that one build local-only
+              }
+            }
             try {
-              await remote.create(l.name, l.cls, l.items);
+              remoteLoadouts = await remote.loadAll();
             } catch {
-              // best-effort -- a failed copy just leaves that one build local-only
+              // The copy itself may still have landed; just show what we had.
             }
           }
-          try {
-            remoteLoadouts = await remote.loadAll();
-          } catch {
-            // The copy itself may still have landed; just show what we had.
-          }
+        } finally {
+          copyPromptInFlight = false;
         }
       }
       if (active) setLoadouts(remoteLoadouts);
@@ -126,12 +143,17 @@ export function useSavedLoadouts(signedIn: boolean): UseSavedLoadouts {
       if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.loadouts)) {
         throw new Error("Not a TF2 loadouts file.");
       }
+      // importJson can't be async without changing UseSavedLoadouts for the local
+      // path too, so a failure here can't ride back through the caller's own
+      // promise chain (App.tsx's onImportFile awaits this call, not the network
+      // request it kicks off) -- surface it here directly, or the user sees no
+      // error at all and believes the import worked.
       Promise.all(parsed.loadouts.map((l) => remote.create(l.name, l.cls, l.items)))
         .then((created) => setLoadouts((prev) => [...created, ...prev]))
         .catch(() => {
-          // A partial-network-failure mid-import leaves whatever did land on the
-          // account; the validation throw above is the only case the caller's own
-          // catch (the import-file handler's alert) needs to see.
+          window.alert(
+            "Couldn't import to your account -- check your connection and try again."
+          );
         });
     },
   };
