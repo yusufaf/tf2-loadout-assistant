@@ -14,7 +14,6 @@ from __future__ import annotations
 import calendar
 import re
 import time
-from dataclasses import dataclass
 from urllib.parse import urlencode
 
 import httpx
@@ -37,11 +36,6 @@ _NONCE_MAX_AGE_SECONDS = 300
 
 class SteamAuthError(RuntimeError):
     """Sign-in could not be verified."""
-
-
-@dataclass(frozen=True)
-class SteamIdentity:
-    steam_id: str
 
 
 class SteamOpenID:
@@ -106,8 +100,11 @@ class SteamOpenID:
             raise SteamAuthError("claimed_id is not a valid Steam profile URL")
         steam_id = match.group(1)
 
-        return_to = params.get("openid.return_to", "")
-        if not return_to.startswith(self._return_to):
+        # Split off the query string rather than a bare startswith: a prefix match
+        # would also accept "<return_to>evil" (e.g. ".../steam/returnEVIL?...") since
+        # that string still starts with the configured value.
+        return_to_base = params.get("openid.return_to", "").split("?", 1)[0]
+        if return_to_base != self._return_to:
             raise SteamAuthError("return_to does not match configured value")
 
         nonce = params.get("openid.response_nonce", "")
