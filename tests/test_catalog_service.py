@@ -13,6 +13,7 @@ from tf2_loadout.catalog import (
     CACHE_VERSION,
     CatalogService,
     StaleCacheError,
+    load_defindex_names,
     save_catalog_cache,
 )
 
@@ -108,3 +109,21 @@ def test_from_cache_rejects_a_cache_written_before_versioning(tmp_path):
     # The message must tell the operator how to fix it -- there is no refresh script.
     assert "pytest --live" in str(excinfo.value)
     assert str(CACHE_VERSION) in str(excinfo.value)
+
+
+def test_load_defindex_names_covers_every_raw_item_not_just_cosmetics(tmp_path):
+    """The backpack API returns bare defindexes for the whole item schema, weapons
+    included -- name resolution needs all of it, not just the cosmetics catalog."""
+    save_catalog_cache(
+        [
+            *CACHE_SCHEMA_ITEMS,
+            {"defindex": 13, "item_class": "tf_weapon_scattergun", "item_name": "Scattergun"},
+        ],
+        CACHE_ITEMS_GAME,
+        tmp_path,
+    )
+
+    names = load_defindex_names(tmp_path)
+
+    assert names[116] == "The Modest Pile of Hat"
+    assert names[13] == "Scattergun"

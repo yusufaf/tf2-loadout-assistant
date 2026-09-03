@@ -8,11 +8,13 @@ import {
   fetchMe,
   steamLoginUrl,
   signOut,
+  fetchInventory,
   formatPrice,
   backpackUrl,
   type Cosmetic,
   type Conflict,
   type Me,
+  type Inventory,
 } from "./api";
 import { DEFAULT_FILTERS, applyFilters, clashingIds, type FilterState } from "./filters";
 import type { ConflictMatrix } from "./conflicts";
@@ -59,6 +61,7 @@ export default function App() {
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
   const [authNote, setAuthNote] = useState("");
+  const [inventory, setInventory] = useState<Inventory | null>(null);
   const saved = useSavedLoadouts();
   const importRef = useRef<HTMLInputElement>(null);
 
@@ -72,6 +75,17 @@ export default function App() {
   useEffect(() => {
     fetchMe().then(setMe);
   }, []);
+
+  // Fetch the backpack once signed in. Not re-run on every render -- the API caches
+  // it server-side for ~10min, and the filter toggle has its own refresh path if we
+  // ever add one.
+  useEffect(() => {
+    if (!me.signed_in) {
+      setInventory(null);
+      return;
+    }
+    fetchInventory().then(setInventory);
+  }, [me.signed_in]);
 
   // Read ?auth=failed left by a rejected /auth/steam/return redirect, then strip it --
   // must run before the ?build= effect below, which wipes every query param wholesale.
@@ -146,9 +160,30 @@ export default function App() {
     [loadout]
   );
 
+  const owned = useMemo(
+    () => new Set(inventory?.status === "ok" ? inventory.defindexes : []),
+    [inventory]
+  );
+  const ownedEnabled = inventory?.status === "ok";
+  const ownedDisabledReason = !me.signed_in
+    ? "Sign in through Steam to filter by what you own"
+    : inventory?.status === "private"
+      ? "Your backpack is set to private on Steam"
+      : inventory?.status === "not_found"
+        ? "Couldn't find a TF2 backpack for this SteamID"
+        : inventory?.status === "error"
+          ? "Couldn't reach Steam's inventory API"
+          : "Loading your backpack…";
+
+  // If the toggle was on and the backpack becomes unavailable (sign-out, a Steam
+  // privacy change), turn it back off rather than leave the grid silently empty.
+  useEffect(() => {
+    if (!ownedEnabled) setFilters((f) => (f.ownedOnly ? { ...f, ownedOnly: false } : f));
+  }, [ownedEnabled]);
+
   const entries = useMemo(
-    () => applyFilters(cosmetics, filters, loadout, matrix),
-    [cosmetics, filters, loadout, matrix]
+    () => applyFilters(cosmetics, filters, loadout, matrix, owned),
+    [cosmetics, filters, loadout, matrix, owned]
   );
 
   function equip(item: Cosmetic) {
@@ -275,7 +310,12 @@ export default function App() {
             />
           </div>
 
-          <FilterBar state={filters} onChange={setFilters} />
+          <FilterBar
+            state={filters}
+            onChange={setFilters}
+            ownedEnabled={ownedEnabled}
+            ownedDisabledReason={ownedDisabledReason}
+          />
 
           {status ? (
             <p className="status">{status}</p>

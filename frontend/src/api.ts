@@ -115,6 +115,28 @@ export async function signOut(): Promise<void> {
   await fetch(`${BASE}/auth/logout`, { method: "POST" });
 }
 
+export type InventoryStatus = "ok" | "private" | "not_found" | "error";
+
+export interface Inventory {
+  status: InventoryStatus;
+  defindexes: number[];
+  fetched_at: number;
+}
+
+/** Signed-out (401) and unconfigured (503) both read as "no inventory data" -- the
+ * caller disables the owned-only toggle either way rather than treating it as an
+ * error the user needs to act on. */
+export async function fetchInventory(refresh = false): Promise<Inventory | null> {
+  try {
+    const params = refresh ? "?refresh=1" : "";
+    const res = await fetch(`${BASE}/me/inventory${params}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export async function sendChat(
   message: string,
   history: unknown[],

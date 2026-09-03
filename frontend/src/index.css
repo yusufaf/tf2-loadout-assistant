@@ -941,6 +941,13 @@ button {
   outline: var(--focus);
   outline-offset: 2px;
 }
+.filter-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.filter-chip:disabled:hover {
+  background: var(--paper);
+}
 
 .filter-row select {
   font: inherit;

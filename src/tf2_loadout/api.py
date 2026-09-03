@@ -22,11 +22,13 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from tf2_loadout.agent import LoadoutAgentService, LoadoutDeps, build_chat_service
 from tf2_loadout.auth import SteamAuthError, SteamAuthService
-from tf2_loadout.catalog import CatalogService
+from tf2_loadout.catalog import CatalogService, load_defindex_names
 from tf2_loadout.config import AuthSettings, LLMSettings, load_env
+from tf2_loadout.inventory import InventoryService
 from tf2_loadout.lore import LoreService
 from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
+from tf2_loadout.steam_web import SteamWebClient
 
 CACHE_DIR = Path(__file__).resolve().parents[2] / ".cache"
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
@@ -99,6 +101,7 @@ def create_app(
     auth: SteamAuthService | None = None,
     session_secret: str | None = None,
     https_only: bool = True,
+    inventory: InventoryService | None = None,
 ) -> FastAPI:
     app = FastAPI(title="TF2 Loadout Assistant")
     app.add_middleware(
@@ -171,6 +174,7 @@ def create_app(
             "priced": len(pricing),
             "chat": chat is not None,
             "auth": auth is not None,
+            "inventory": inventory is not None,
         }
 
     @app.get("/cosmetics")
@@ -341,6 +345,20 @@ def create_app(
         request.session.clear()
         return Response(status_code=204)
 
+    @app.get("/me/inventory")
+    async def me_inventory(request: Request, refresh: bool = False) -> dict:
+        if auth is None or inventory is None:
+            raise HTTPException(status_code=503, detail="inventory service unavailable")
+        steam_id = request.session.get("steam_id")
+        if not steam_id:
+            raise HTTPException(status_code=401, detail="sign in required")
+        result = await inventory.fetch(steam_id, refresh=refresh)
+        return {
+            "status": result.status,
+            "defindexes": sorted(result.defindexes),
+            "fetched_at": result.fetched_at,
+        }
+
     # Serves the built frontend at the same origin as the API, so tf2.yusufaf.dev
     # needs no CORS config and no separate static host. Mounted last so it never
     # shadows the API routes above — Starlette matches explicit paths before a
@@ -383,6 +401,16 @@ def main() -> None:
     else:
         print("auth disabled: no SESSION_SECRET/PUBLIC_BASE_URL found (see .env.example)")
 
+    # Needs both a working session (to know whose backpack to fetch) and a Steam key
+    # (to fetch it), so it rides on auth rather than being independently configurable.
+    inventory = None
+    if auth is not None and auth_settings.steam_api_key:
+        inventory = InventoryService(
+            SteamWebClient(auth_settings.steam_api_key),
+            catalog,
+            load_defindex_names(CACHE_DIR),
+        )
+
     app = create_app(
         catalog,
         pricing,
@@ -394,6 +422,7 @@ def main() -> None:
             auth_settings.public_base_url
             and auth_settings.public_base_url.startswith("https://")
         ),
+        inventory=inventory,
     )
     # 0.0.0.0, not 127.0.0.1: inside a container, Fly's proxy connects from
     # outside the container's network namespace and can't reach a loopback bind.
