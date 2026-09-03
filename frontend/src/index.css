@@ -126,6 +126,80 @@ button {
   font-size: var(--t-sm);
   color: var(--ink-soft);
 }
+.masthead-side {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+.auth-note {
+  width: 100%;
+  margin: var(--s1) 0 0;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--red);
+}
+
+/* ---- Steam sign-in: same button family as .handoff (blu = navigation/identity) ---- */
+.steam-signin {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  background: var(--blu);
+  color: #fff;
+  border: var(--bd);
+  padding: var(--s1) var(--s2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  font-size: var(--t-xs);
+  text-decoration: none;
+  box-shadow: var(--shadow-hard);
+}
+.steam-signin:hover {
+  background: var(--blu-deep);
+}
+.steam-signin:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.steam-glyph {
+  flex: none;
+}
+.steam-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+}
+.steam-avatar {
+  width: 20px;
+  height: 20px;
+  border: var(--bd);
+}
+.steam-persona {
+  font-size: var(--t-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.steam-signout {
+  background: var(--paper);
+  border: var(--bd);
+  color: var(--ink);
+  padding: var(--s1) var(--s2);
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.steam-signout:hover {
+  background: var(--paper-edge);
+}
+.steam-signout:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
 
 .bench {
   display: grid;

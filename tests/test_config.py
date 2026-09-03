@@ -7,6 +7,7 @@ import pytest
 from tf2_loadout.config import (
     DEFAULT_MODEL,
     DEFAULT_OLLAMA_BASE_URL,
+    AuthSettings,
     LLMSettings,
     apply_provider_env,
 )
@@ -131,3 +132,31 @@ def test_apply_provider_env_is_a_noop_without_overrides(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-native")
     apply_provider_env(LLMSettings.from_env())
     assert os.environ["ANTHROPIC_API_KEY"] == "sk-native"
+
+
+_AUTH_VARS = ["PUBLIC_BASE_URL", "SESSION_SECRET", "STEAM_API_KEY"]
+
+
+@pytest.fixture(autouse=True)
+def clean_auth_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in _AUTH_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_auth_disabled_with_nothing_set() -> None:
+    assert AuthSettings.from_env().enabled is False
+
+
+def test_auth_disabled_with_only_one_of_the_two_required_vars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SESSION_SECRET", "shh")
+    assert AuthSettings.from_env().enabled is False
+
+
+def test_auth_enabled_once_both_required_vars_are_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SESSION_SECRET", "shh")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://tf2.example.dev")
+    assert AuthSettings.from_env().enabled is True

@@ -28,7 +28,10 @@ export interface Conflict {
   regions: string[];
 }
 
-const BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
+// Empty string = same-origin: prod serves the built frontend from the API itself, and
+// the dev proxy (vite.config.ts) forwards API prefixes to :8000, so both cases share
+// one origin -- required for the Steam sign-in cookie (SameSite=Lax) to ride along.
+const BASE = import.meta.env.VITE_API_BASE ?? "";
 
 export async function fetchCosmetics(usedBy: string, q: string): Promise<Cosmetic[]> {
   // limit=0 means "everything": filtering happens client-side, so a truncated page
@@ -83,6 +86,33 @@ export async function fetchChatAvailable(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export interface Me {
+  signed_in: boolean;
+  steam_id?: string;
+  persona?: string | null;
+  avatar?: string | null;
+}
+
+/** Probes sign-in state at mount, same pattern as `fetchChatAvailable`: an absent or
+ * unconfigured auth service just means signed-out, never an error the UI surfaces. */
+export async function fetchMe(): Promise<Me> {
+  try {
+    const res = await fetch(`${BASE}/auth/me`);
+    if (!res.ok) return { signed_in: false };
+    return await res.json();
+  } catch {
+    return { signed_in: false };
+  }
+}
+
+export function steamLoginUrl(): string {
+  return `${BASE}/auth/steam/login`;
+}
+
+export async function signOut(): Promise<void> {
+  await fetch(`${BASE}/auth/logout`, { method: "POST" });
 }
 
 export async function sendChat(

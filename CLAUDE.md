@@ -51,6 +51,14 @@ cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 
 **Chat is stateless.** The client sends the whole transcript back each turn. `DEFAULT_MAX_REQUESTS = 25` is a runaway-loop guard sized against measurement (a plain turn is ~8 requests, a hard lore-checking turn hit 13), not a budget cap.
 
+**Steam sign-in is hand-rolled OpenID 2.0, not OIDC.** Steam never moved off OpenID 2.0, and no modern library speaks it, so `steam_auth.py`'s `SteamOpenID` implements the handful of query params and the one verification POST directly. Everything on the return callback passed through the user's browser and is forgeable; only the server-to-server `check_authentication` POST (with `mode` swapped) makes `claimed_id` trustworthy — it is not an optimization to skip. `auth.py`'s `SteamAuthService` composes that with `steam_web.py`'s best-effort profile fetch (persona/avatar; sign-in still succeeds without it) and is injected into `create_app` the same optional-service way as `lore`/`chat` — `None` means 503, surfaced in `/healthz` as `"auth"`.
+
+**Session state is a signed cookie, not server storage.** `SessionMiddleware` (Starlette + `itsdangerous`) holds `steam_id`/`persona`/`avatar` plus a one-shot CSRF `state` for the OpenID round trip. `SameSite=Lax` is required, not a hardening nice-to-have — the return from Steam is a top-level cross-site GET, and `Strict` would drop the cookie carrying the CSRF state before the handler ever sees it. Rotating `SESSION_SECRET` signs everyone out; that's expected.
+
+**Realm and return_to are built from config, never from the request.** `uvicorn.run` in `main()` passes `proxy_headers=True, forwarded_allow_ips="*"` because Fly terminates TLS in front of the app; without trusting those headers, `request.url` reports plain `http://` even in production, and Steam would reject a realm that doesn't match what it saw. `PUBLIC_BASE_URL` is the single source of truth for both.
+
+**Dev is made same-origin with prod, not CORS-permissive.** `SameSite=Lax` blocks the session cookie on a cross-site XHR, and `allow_credentials=True` on CORS does not fix that. Instead `vite.config.ts` proxies the API prefixes to `:8000` and `api.ts`'s `BASE` defaults to `""`, so dev looks like prod (frontend and API on one origin) rather than prod being made to look like dev.
+
 ## Testing
 
 Agent tests drive Pydantic AI's `TestModel` / `FunctionModel`, and a session fixture pins `ALLOW_MODEL_REQUESTS = False` so no test can reach a provider by accident. Do not remove that fixture. `*_live.py` test modules and `@pytest.mark.live` cases are skipped unless `--live` is passed.

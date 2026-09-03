@@ -18,8 +18,14 @@ primary_region = 'lax'
   # Chat is optional: the API serves the catalog fine with no LLM key, and
   # /healthz reports "chat": false. To enable it:
   #   fly secrets set --app tf2-loadout-af LLM_API_KEY=<your anthropic key>
-  # STEAM_API_KEY / BACKPACK_TF_API_KEY are dev-only — they're used by
-  # `uv run pytest --live` to refresh .cache/, not by the running app.
+  # BACKPACK_TF_API_KEY is dev-only — used by `uv run pytest --live` to refresh
+  # .cache/, not by the running app.
+  # STEAM_API_KEY is dev-only for the catalog cache too, but is ALSO a runtime
+  # secret once Steam sign-in is enabled (it's the same key, used differently).
+  # Sign-in is optional like chat: /healthz reports "auth": false without it.
+  #   fly secrets set --app tf2-loadout-af \
+  #     STEAM_API_KEY=<key> SESSION_SECRET=<random> \
+  #     PUBLIC_BASE_URL=https://tf2.yusufaf.dev
   LLM_MODEL = 'anthropic:claude-opus-4-8'
 
 [http_service]
