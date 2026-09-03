@@ -63,6 +63,8 @@ cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 
 **Owned-only filtering treats "no data" as "owns nothing," never "owns everything."** `filters.ts`'s `applyFilters` takes an `owned` set that defaults empty; the frontend disables the toggle itself (`FilterBar`'s `ownedEnabled`) whenever there's nothing to filter by — signed out, still loading, or backpack set to private on Steam — rather than letting `ownedOnly` silently show everything.
 
+**The advisor's `owned` is `None` or a set — never conflated.** `LoadoutDeps.owned` is `frozenset[int] | None`; `None` means "can't see the backpack this turn" (signed out, private, no inventory service, a fetch error), and an empty `frozenset()` genuinely means "owns nothing here." `search_cosmetics(owned_only=True)` folds `None` to `frozenset()` at the tool boundary — no data in, no items out — but the `inventory_note` instruction tells the model which case it's in *before* it calls the tool, so a signed-out player gets "I can't see your backpack" instead of a silent empty result. `api.py`'s `_owned_for` collapses every non-`"ok"` inventory status (private, not_found, error) to `None` for the same reason: only a confirmed-readable backpack is a real answer. Chat stays stateless in the transcript sense (`ChatRequest` is unchanged) — inventory rides the session cookie each turn, the same way identity does, never the client-sent history.
+
 ## Testing
 
 Agent tests drive Pydantic AI's `TestModel` / `FunctionModel`, and a session fixture pins `ALLOW_MODEL_REQUESTS = False` so no test can reach a provider by accident. Do not remove that fixture. `*_live.py` test modules and `@pytest.mark.live` cases are skipped unless `--live` is passed.

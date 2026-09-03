@@ -68,7 +68,14 @@ class InventoryService:
             return cached
         raw = await self._client.fetch_backpack(steam_id)
         result = self._resolve(raw)
-        self._cache[steam_id] = result
+        # "error" means the fetch itself failed (a network blip, a Steam outage) --
+        # transient, not a fact about the account like "ok"/"private"/"not_found"
+        # are. Caching it would strand every caller behind a stale failure for the
+        # full TTL with no way to force a retry; leaving it uncached means the very
+        # next call (including the next chat turn) tries again instead of reusing
+        # yesterday's bad luck.
+        if result.status != "error":
+            self._cache[steam_id] = result
         return result
 
     def _resolve(self, raw: dict) -> InventoryResult:

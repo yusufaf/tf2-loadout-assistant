@@ -88,6 +88,24 @@ async def test_result_is_cached_within_the_ttl():
     assert len(calls) == 1
 
 
+async def test_an_error_result_is_not_cached_so_the_next_call_retries():
+    # A transient failure must self-heal on the very next call, not strand every
+    # caller (including the next chat turn) behind a stale error for the full TTL.
+    calls = []
+
+    def handler(sid):
+        calls.append(sid)
+        return {"status": 1, "items": [{"defindex": 1}]} if len(calls) > 1 else {"status": 0}
+
+    service = _service(handler, ttl_seconds=600.0)
+    first = await service.fetch(STEAM_ID)
+    second = await service.fetch(STEAM_ID)
+
+    assert first.status == "error"
+    assert second.status == "ok"
+    assert len(calls) == 2
+
+
 async def test_refresh_bypasses_the_cache():
     calls = []
 
