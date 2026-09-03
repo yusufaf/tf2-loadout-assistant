@@ -156,6 +156,26 @@ def save_catalog_cache(
     (cache_dir / EQUIP_CACHE).write_text(json.dumps(equip), encoding="utf-8")
 
 
+def load_defindex_names(cache_dir: str | Path) -> dict[int, str]:
+    """defindex -> name for *every* raw schema item, cosmetics or not.
+
+    ``CatalogService`` only keeps items with a resolved equip region. Resolving an
+    owned backpack item that Valve tracks under a different defindex than the
+    catalog's cosmetic entry (a Genuine/promo variant, a re-release) needs a name to
+    match against, and the backpack API itself returns no names -- only defindexes --
+    so this reads the same raw schema cache CatalogService does, unfiltered.
+    """
+    cache_dir = Path(cache_dir)
+    raw_items = json.loads((cache_dir / SCHEMA_CACHE).read_text(encoding="utf-8"))
+    names: dict[int, str] = {}
+    for raw in raw_items:
+        defindex = raw.get("defindex")
+        name = raw.get("item_name") or raw.get("name")
+        if defindex is not None and name:
+            names[defindex] = name
+    return names
+
+
 class CatalogService:
     """In-memory query API over a parsed cosmetic catalog."""
 

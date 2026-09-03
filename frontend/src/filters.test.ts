@@ -242,6 +242,28 @@ describe("budget filter", () => {
   });
 });
 
+describe("owned-only filter", () => {
+  it("keeps only items in the owned set", () => {
+    const state = { ...DEFAULT_FILTERS, ownedOnly: true };
+
+    expect(names(applyFilters(ALL, state, [], MATRIX, new Set([FEDORA.defindex])))).toEqual([
+      "Fancy Fedora",
+    ]);
+  });
+
+  it("keeps everything with no owned set -- unknown ownership excludes, not includes", () => {
+    const state = { ...DEFAULT_FILTERS, ownedOnly: false };
+
+    expect(applyFilters(ALL, state, [], MATRIX)).toHaveLength(ALL.length);
+  });
+
+  it("shows nothing when ownedOnly is set but no owned set was passed", () => {
+    const state = { ...DEFAULT_FILTERS, ownedOnly: true };
+
+    expect(applyFilters(ALL, state, [], MATRIX)).toHaveLength(0);
+  });
+});
+
 describe("activeFilterCount", () => {
   it("is zero for the defaults", () => {
     expect(activeFilterCount(DEFAULT_FILTERS)).toBe(0);
@@ -260,6 +282,10 @@ describe("activeFilterCount", () => {
 
   it("counts an engaged budget cap", () => {
     expect(activeFilterCount({ ...DEFAULT_FILTERS, maxRef: 10 })).toBe(1);
+  });
+
+  it("counts ownedOnly", () => {
+    expect(activeFilterCount({ ...DEFAULT_FILTERS, ownedOnly: true })).toBe(1);
   });
 });
 

@@ -59,6 +59,10 @@ cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 
 **Dev is made same-origin with prod, not CORS-permissive.** `SameSite=Lax` blocks the session cookie on a cross-site XHR, and `allow_credentials=True` on CORS does not fix that. Instead `vite.config.ts` proxies the API prefixes to `:8000` and `api.ts`'s `BASE` defaults to `""`, so dev looks like prod (frontend and API on one origin) rather than prod being made to look like dev.
 
+**Backpack resolution falls back to name matching because the backpack API has no names.** `IEconItems_440/GetPlayerItems` returns bare defindexes, and Valve sometimes tracks the same cosmetic under more than one (a Genuine/promo quality variant, a re-release). `inventory.py`'s `InventoryService` tries a direct catalog hit first; on a miss it looks the defindex up in `catalog.load_defindex_names` — a name index built from *every* raw schema item, cosmetics or not, since the miss could be a weapon-shaped defindex too — and re-resolves by name against the cosmetics catalog. A defindex that resolves through neither path is dropped, not guessed at; same "unknown over guessed" rule as a missing price. Results are cached ~10 minutes per SteamID (`DEFAULT_TTL_SECONDS`) since Steam has no push notification for inventory changes; `?refresh=1` on `/me/inventory` bypasses it.
+
+**Owned-only filtering treats "no data" as "owns nothing," never "owns everything."** `filters.ts`'s `applyFilters` takes an `owned` set that defaults empty; the frontend disables the toggle itself (`FilterBar`'s `ownedEnabled`) whenever there's nothing to filter by — signed out, still loading, or backpack set to private on Steam — rather than letting `ownedOnly` silently show everything.
+
 ## Testing
 
 Agent tests drive Pydantic AI's `TestModel` / `FunctionModel`, and a session fixture pins `ALLOW_MODEL_REQUESTS = False` so no test can reach a provider by accident. Do not remove that fixture. `*_live.py` test modules and `@pytest.mark.live` cases are skipped unless `--live` is passed.

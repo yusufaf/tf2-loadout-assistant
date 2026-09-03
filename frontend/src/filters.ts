@@ -27,6 +27,8 @@ export interface FilterState {
    * items (a currency with no metal exchange rate) are dropped once set, since their
    * affordability can't be verified. */
   maxRef: number | null;
+  /** Show only cosmetics in the signed-in user's real backpack. */
+  ownedOnly: boolean;
 }
 
 export const DEFAULT_FILTERS: FilterState = {
@@ -39,6 +41,7 @@ export const DEFAULT_FILTERS: FilterState = {
   hasStyles: false,
   hideHalloween: false,
   maxRef: null,
+  ownedOnly: false,
 };
 
 export interface GridEntry {
@@ -80,13 +83,18 @@ export function applyFilters(
   items: Cosmetic[],
   state: FilterState,
   tray: Cosmetic[],
-  matrix: ConflictMatrix
+  matrix: ConflictMatrix,
+  // Unset (not fetched, signed out, backpack private) reads the same as "owns
+  // nothing" here -- the caller disables the toggle in that case instead of letting
+  // it silently show everything, the same "unknown over guessed" rule as maxRef.
+  owned: ReadonlySet<number> = new Set()
 ): GridEntry[] {
   const equipped = new Set(tray.map((c) => c.defindex));
 
   const kept = items.filter((item) => {
     if (!matchesScope(item, state.scope)) return false;
     if (state.equippedOnly && !equipped.has(item.defindex)) return false;
+    if (state.ownedOnly && !owned.has(item.defindex)) return false;
     if (state.paintable && !item.paintable) return false;
     if (state.hasStyles && item.styles.length === 0) return false;
     if (state.hideHalloween && item.holiday_restriction !== null) return false;
@@ -146,5 +154,6 @@ export function activeFilterCount(state: FilterState): number {
     state.hasStyles,
     state.hideHalloween,
     state.maxRef !== null,
+    state.ownedOnly,
   ].filter(Boolean).length;
 }

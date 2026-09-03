@@ -11,6 +11,7 @@ import httpx
 from . import __version__
 
 PLAYER_SUMMARIES_URL = "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/"
+BACKPACK_URL = "https://api.steampowered.com/IEconItems_440/GetPlayerItems/v0001/"
 USER_AGENT = f"tf2-loadout-assistant/{__version__}"
 DEFAULT_TIMEOUT = 15.0
 
@@ -65,3 +66,21 @@ class SteamWebClient:
             "avatar": player.get("avatarfull"),
             "profile_url": player.get("profileurl"),
         }
+
+    async def fetch_backpack(self, steam_id: str) -> dict:
+        """Raw ``GetPlayerItems`` result: ``{"status": ..., "items": [...]}``.
+
+        Status codes: 1 ok, 15 backpack set to private, 8/18 bad or unknown SteamID.
+        A transport failure folds into status 0 (unmapped by any caller's status
+        table, so it reads as a generic error) rather than raising -- same
+        defensive posture as ``fetch_profile``.
+        """
+        try:
+            resp = await self._client.get(
+                BACKPACK_URL,
+                params={"key": self._api_key, "steamid": steam_id, "format": "json"},
+            )
+            resp.raise_for_status()
+            return resp.json().get("result", {})
+        except Exception:
+            return {"status": 0}

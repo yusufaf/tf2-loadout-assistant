@@ -58,3 +58,23 @@ async def test_fetch_profile_swallows_failures_and_returns_none():
         return httpx.Response(500, text="internal error")
 
     assert await _client(handler).fetch_profile(STEAM_ID) is None
+
+
+async def test_fetch_backpack_returns_the_raw_result():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=json.dumps(
+                {"result": {"status": 1, "items": [{"defindex": 378}]}}
+            ),
+        )
+
+    result = await _client(handler).fetch_backpack(STEAM_ID)
+    assert result == {"status": 1, "items": [{"defindex": 378}]}
+
+
+async def test_fetch_backpack_folds_a_transport_failure_into_status_zero():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="internal error")
+
+    assert await _client(handler).fetch_backpack(STEAM_ID) == {"status": 0}

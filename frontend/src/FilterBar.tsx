@@ -33,9 +33,16 @@ const TOGGLES: { key: keyof FilterState; label: string; title: string }[] = [
 export default function FilterBar({
   state,
   onChange,
+  ownedEnabled = true,
+  ownedDisabledReason,
 }: {
   state: FilterState;
   onChange: (next: FilterState) => void;
+  /** Whether "Owned only" can be toggled at all -- needs a signed-in user with a
+   * readable (non-private) backpack. */
+  ownedEnabled?: boolean;
+  /** Shown as the toggle's title when disabled, explaining why. */
+  ownedDisabledReason?: string;
 }) {
   const active = activeFilterCount(state);
 
@@ -119,6 +126,16 @@ export default function FilterBar({
             {t.label}
           </button>
         ))}
+        <button
+          type="button"
+          className="filter-chip"
+          disabled={!ownedEnabled}
+          title={ownedEnabled ? "Show only cosmetics in your real backpack" : ownedDisabledReason}
+          aria-pressed={state.ownedOnly}
+          onClick={() => onChange({ ...state, ownedOnly: !state.ownedOnly })}
+        >
+          Owned only
+        </button>
         {active > 0 && (
           <button
             type="button"
