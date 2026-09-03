@@ -26,6 +26,14 @@ primary_region = 'lax'
   #   fly secrets set --app tf2-loadout-af \
   #     STEAM_API_KEY=<key> SESSION_SECRET=<random> \
   #     PUBLIC_BASE_URL=https://tf2.yusufaf.dev
+  # Saved loadouts (DynamoDB) are optional too: /healthz reports "loadouts": false
+  # without DYNAMODB_TABLE_NAME. AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY are
+  # boto3's own native var names, scoped to one table via a hand-created IAM user
+  # (see CLAUDE.md) -- not minted by CDK, so the secret never lands in
+  # CloudFormation state.
+  #   fly secrets set --app tf2-loadout-af \
+  #     DYNAMODB_TABLE_NAME=tf2-loadout-production-main AWS_REGION=us-west-2 \
+  #     AWS_ACCESS_KEY_ID=<key> AWS_SECRET_ACCESS_KEY=<secret>
   LLM_MODEL = 'anthropic:claude-opus-4-8'
 
 [http_service]

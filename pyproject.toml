@@ -23,6 +23,10 @@ dependencies = [
     # Reuse the wiki client + parsers from the sibling MCP project for item lore.
     "tf2-wiki-mcp",
     "vdf>=3.4",
+    # Saved-loadout storage (DynamoDB). Plain boto3, not aioboto3/aiobotocore --
+    # loadout CRUD is low-frequency, and aiobotocore pins botocore tightly enough to
+    # become a recurring resolver headache for what this needs.
+    "boto3>=1.34",
 ]
 
 [project.urls]
@@ -47,6 +51,9 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "pytest-recording>=0.13.4",
     "vcrpy>=8.1.1",
+    # Mocks DynamoDB in-process for test_loadouts.py -- keeps the "no test reaches a
+    # real external API" rule intact, same story as TestModel for the LLM.
+    "moto[dynamodb]>=5.0",
 ]
 
 [tool.pytest.ini_options]

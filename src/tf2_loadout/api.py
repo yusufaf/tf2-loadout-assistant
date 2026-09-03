@@ -23,8 +23,9 @@ from starlette.middleware.sessions import SessionMiddleware
 from tf2_loadout.agent import LoadoutAgentService, LoadoutDeps, build_chat_service
 from tf2_loadout.auth import SteamAuthError, SteamAuthService
 from tf2_loadout.catalog import CatalogService, load_defindex_names
-from tf2_loadout.config import AuthSettings, LLMSettings, load_env
+from tf2_loadout.config import AuthSettings, LLMSettings, LoadoutsSettings, load_env
 from tf2_loadout.inventory import InventoryService
+from tf2_loadout.loadouts import DynamoLoadoutStore, LoadoutStore, SavedLoadout
 from tf2_loadout.lore import LoreService
 from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
@@ -93,6 +94,27 @@ class ChatResponse(BaseModel):
     history: list[dict]
 
 
+class LoadoutOut(BaseModel):
+    id: str
+    name: str
+    cls: str
+    defindexes: list[int]
+    created_at: int
+    updated_at: int
+
+
+class LoadoutCreate(BaseModel):
+    name: str
+    cls: str
+    defindexes: list[int] = Field(default_factory=list, max_length=MAX_EQUIPPED)
+
+
+class LoadoutPatch(BaseModel):
+    name: str | None = None
+    cls: str | None = None
+    defindexes: list[int] | None = Field(default=None, max_length=MAX_EQUIPPED)
+
+
 def create_app(
     catalog: CatalogService,
     pricing: PricingService,
@@ -102,6 +124,7 @@ def create_app(
     session_secret: str | None = None,
     https_only: bool = True,
     inventory: InventoryService | None = None,
+    loadouts: LoadoutStore | None = None,
 ) -> FastAPI:
     app = FastAPI(title="TF2 Loadout Assistant")
     app.add_middleware(
@@ -193,6 +216,7 @@ def create_app(
             "chat": chat is not None,
             "auth": auth is not None,
             "inventory": inventory is not None,
+            "loadouts": loadouts is not None,
         }
 
     @app.get("/cosmetics")
@@ -379,6 +403,62 @@ def create_app(
             "fetched_at": result.fetched_at,
         }
 
+    def _loadout_out(saved: SavedLoadout) -> LoadoutOut:
+        return LoadoutOut(
+            id=saved.id,
+            name=saved.name,
+            cls=saved.cls,
+            defindexes=list(saved.defindexes),
+            created_at=saved.created_at,
+            updated_at=saved.updated_at,
+        )
+
+    def _require_steam_id(request: Request) -> str:
+        steam_id = request.session.get("steam_id")
+        if not steam_id:
+            raise HTTPException(status_code=401, detail="sign in required")
+        return steam_id
+
+    @app.get("/me/loadouts")
+    async def list_loadouts(request: Request) -> dict:
+        if auth is None or loadouts is None:
+            raise HTTPException(status_code=503, detail="loadouts service unavailable")
+        steam_id = _require_steam_id(request)
+        items = await loadouts.list(steam_id)
+        return {"loadouts": [_loadout_out(i) for i in items]}
+
+    @app.post("/me/loadouts", status_code=201)
+    async def create_loadout(req: LoadoutCreate, request: Request) -> LoadoutOut:
+        if auth is None or loadouts is None:
+            raise HTTPException(status_code=503, detail="loadouts service unavailable")
+        steam_id = _require_steam_id(request)
+        created = await loadouts.create(steam_id, req.name, req.cls, req.defindexes)
+        return _loadout_out(created)
+
+    @app.patch("/me/loadouts/{loadout_id}")
+    async def patch_loadout(
+        loadout_id: str, req: LoadoutPatch, request: Request
+    ) -> LoadoutOut:
+        if auth is None or loadouts is None:
+            raise HTTPException(status_code=503, detail="loadouts service unavailable")
+        steam_id = _require_steam_id(request)
+        updated = await loadouts.update(
+            steam_id, loadout_id, name=req.name, cls=req.cls, defindexes=req.defindexes
+        )
+        if updated is None:
+            raise HTTPException(status_code=404, detail="loadout not found")
+        return _loadout_out(updated)
+
+    @app.delete("/me/loadouts/{loadout_id}", status_code=204)
+    async def delete_loadout(loadout_id: str, request: Request) -> Response:
+        if auth is None or loadouts is None:
+            raise HTTPException(status_code=503, detail="loadouts service unavailable")
+        steam_id = _require_steam_id(request)
+        deleted = await loadouts.delete(steam_id, loadout_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="loadout not found")
+        return Response(status_code=204)
+
     # Serves the built frontend at the same origin as the API, so tf2.yusufaf.dev
     # needs no CORS config and no separate static host. Mounted last so it never
     # shadows the API routes above — Starlette matches explicit paths before a
@@ -431,6 +511,16 @@ def main() -> None:
             load_defindex_names(CACHE_DIR),
         )
 
+    loadouts_settings = LoadoutsSettings.from_env()
+    loadouts = None
+    if loadouts_settings.enabled:
+        loadouts = DynamoLoadoutStore(
+            loadouts_settings.table_name, region=loadouts_settings.region
+        )
+        print(f"loadouts enabled: {loadouts_settings.table_name}")
+    else:
+        print("loadouts disabled: no DYNAMODB_TABLE_NAME found (see .env.example)")
+
     app = create_app(
         catalog,
         pricing,
@@ -443,6 +533,7 @@ def main() -> None:
             and auth_settings.public_base_url.startswith("https://")
         ),
         inventory=inventory,
+        loadouts=loadouts,
     )
     # 0.0.0.0, not 127.0.0.1: inside a container, Fly's proxy connects from
     # outside the container's network namespace and can't reach a loopback bind.

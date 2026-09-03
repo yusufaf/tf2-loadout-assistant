@@ -137,6 +137,60 @@ export async function fetchInventory(refresh = false): Promise<Inventory | null>
   }
 }
 
+export interface LoadoutRecord {
+  id: string;
+  name: string;
+  cls: string;
+  defindexes: number[];
+  created_at: number;
+  updated_at: number;
+}
+
+/** null on any failure (signed out, unconfigured, network) -- the caller falls
+ * back to the localStorage store either way, same "unavailable, not an error the
+ * user must act on" story as `fetchInventory`. */
+export async function fetchLoadouts(): Promise<LoadoutRecord[] | null> {
+  try {
+    const res = await fetch(`${BASE}/me/loadouts`);
+    if (!res.ok) return null;
+    return (await res.json()).loadouts;
+  } catch {
+    return null;
+  }
+}
+
+export async function createLoadout(
+  name: string,
+  cls: string,
+  defindexes: number[]
+): Promise<LoadoutRecord> {
+  const res = await fetch(`${BASE}/me/loadouts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, cls, defindexes }),
+  });
+  if (!res.ok) throw new Error(`loadouts ${res.status}`);
+  return res.json();
+}
+
+export async function updateLoadout(
+  id: string,
+  patch: { name?: string; cls?: string; defindexes?: number[] }
+): Promise<LoadoutRecord> {
+  const res = await fetch(`${BASE}/me/loadouts/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`loadouts ${res.status}`);
+  return res.json();
+}
+
+export async function deleteLoadout(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/me/loadouts/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 404) throw new Error(`loadouts ${res.status}`);
+}
+
 export async function sendChat(
   message: string,
   history: unknown[],
