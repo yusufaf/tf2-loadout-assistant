@@ -116,3 +116,28 @@ def build_model(settings: LLMSettings) -> str:
     """Resolve settings to the model spec handed to ``Agent(...)``."""
     apply_provider_env(settings)
     return settings.model
+
+
+@dataclass(frozen=True)
+class AuthSettings:
+    public_base_url: str | None
+    session_secret: str | None
+    steam_api_key: str | None
+
+    @classmethod
+    def from_env(cls) -> AuthSettings:
+        return cls(
+            public_base_url=_env("PUBLIC_BASE_URL"),
+            session_secret=_env("SESSION_SECRET"),
+            steam_api_key=_env("STEAM_API_KEY"),
+        )
+
+    @property
+    def enabled(self) -> bool:
+        """Whether we have enough to run Steam sign-in at all.
+
+        ``steam_api_key`` is checked separately at call sites that need the
+        profile lookup -- sign-in itself only needs the session secret and a
+        base URL to build realm/return_to from.
+        """
+        return bool(self.session_secret and self.public_base_url)

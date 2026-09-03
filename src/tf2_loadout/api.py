@@ -7,20 +7,23 @@ tests and booted from the on-disk cache in production (see ``main``).
 from __future__ import annotations
 
 import json
+import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_core import to_jsonable_python
+from starlette.middleware.sessions import SessionMiddleware
 
 from tf2_loadout.agent import LoadoutAgentService, LoadoutDeps, build_chat_service
+from tf2_loadout.auth import SteamAuthError, SteamAuthService
 from tf2_loadout.catalog import CatalogService
-from tf2_loadout.config import LLMSettings, load_env
+from tf2_loadout.config import AuthSettings, LLMSettings, load_env
 from tf2_loadout.lore import LoreService
 from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
@@ -93,6 +96,9 @@ def create_app(
     pricing: PricingService,
     lore: LoreService | None = None,
     chat: LoadoutAgentService | None = None,
+    auth: SteamAuthService | None = None,
+    session_secret: str | None = None,
+    https_only: bool = True,
 ) -> FastAPI:
     app = FastAPI(title="TF2 Loadout Assistant")
     app.add_middleware(
@@ -101,6 +107,17 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    if auth is not None and session_secret:
+        app.add_middleware(
+            SessionMiddleware,
+            secret_key=session_secret,
+            session_cookie="tf2_session",
+            # The return from Steam is a top-level cross-site GET; "strict" would
+            # drop the cookie carrying the CSRF state before the handler ever sees it.
+            same_site="lax",
+            https_only=https_only,
+            max_age=30 * 24 * 3600,
+        )
 
     def to_out(cosmetic: Cosmetic) -> CosmeticOut:
         price = pricing.get(cosmetic.defindex)
@@ -153,6 +170,7 @@ def create_app(
             "cosmetics": len(catalog),
             "priced": len(pricing),
             "chat": chat is not None,
+            "auth": auth is not None,
         }
 
     @app.get("/cosmetics")
@@ -276,6 +294,53 @@ def create_app(
             ]
         }
 
+    @app.get("/auth/steam/login")
+    def steam_login(request: Request) -> RedirectResponse:
+        if auth is None:
+            raise HTTPException(status_code=503, detail="auth service unavailable")
+        state = secrets.token_urlsafe(16)
+        request.session["oauth_state"] = state
+        return RedirectResponse(auth.login_url(state))
+
+    @app.get("/auth/steam/return")
+    async def steam_return(request: Request) -> RedirectResponse:
+        if auth is None:
+            raise HTTPException(status_code=503, detail="auth service unavailable")
+        query = dict(request.query_params)
+        expected_state = request.session.pop("oauth_state", None)
+        if not expected_state or query.get("state") != expected_state:
+            return RedirectResponse("/?auth=failed")
+        openid_params = {k: v for k, v in query.items() if k.startswith("openid.")}
+        try:
+            user = await auth.complete_login(openid_params)
+        except SteamAuthError:
+            return RedirectResponse("/?auth=failed")
+        request.session["steam_id"] = user.steam_id
+        request.session["persona"] = user.persona
+        request.session["avatar"] = user.avatar
+        return RedirectResponse("/")
+
+    @app.get("/auth/me")
+    def auth_me(request: Request) -> dict:
+        if auth is None:
+            raise HTTPException(status_code=503, detail="auth service unavailable")
+        steam_id = request.session.get("steam_id")
+        if not steam_id:
+            return {"signed_in": False}
+        return {
+            "signed_in": True,
+            "steam_id": steam_id,
+            "persona": request.session.get("persona"),
+            "avatar": request.session.get("avatar"),
+        }
+
+    @app.post("/auth/logout")
+    def auth_logout(request: Request) -> Response:
+        if auth is None:
+            raise HTTPException(status_code=503, detail="auth service unavailable")
+        request.session.clear()
+        return Response(status_code=204)
+
     # Serves the built frontend at the same origin as the API, so tf2.yusufaf.dev
     # needs no CORS config and no separate static host. Mounted last so it never
     # shadows the API routes above — Starlette matches explicit paths before a
@@ -307,9 +372,34 @@ def main() -> None:
     elif chat is not None:
         print(f"chat enabled: {settings.model}")
 
+    auth_settings = AuthSettings.from_env()
+    auth = None
+    if auth_settings.enabled:
+        auth = SteamAuthService(
+            public_base_url=auth_settings.public_base_url,
+            steam_api_key=auth_settings.steam_api_key,
+        )
+        print(f"auth enabled: {auth_settings.public_base_url}")
+    else:
+        print("auth disabled: no SESSION_SECRET/PUBLIC_BASE_URL found (see .env.example)")
+
+    app = create_app(
+        catalog,
+        pricing,
+        lore,
+        chat,
+        auth=auth,
+        session_secret=auth_settings.session_secret,
+        https_only=bool(
+            auth_settings.public_base_url
+            and auth_settings.public_base_url.startswith("https://")
+        ),
+    )
     # 0.0.0.0, not 127.0.0.1: inside a container, Fly's proxy connects from
     # outside the container's network namespace and can't reach a loopback bind.
-    uvicorn.run(create_app(catalog, pricing, lore, chat), host="0.0.0.0", port=8000)
+    # proxy_headers: Fly terminates TLS in front of us, so trust its X-Forwarded-*
+    # or every request looks like plain http even in production.
+    uvicorn.run(app, host="0.0.0.0", port=8000, proxy_headers=True, forwarded_allow_ips="*")
 
 
 if __name__ == "__main__":

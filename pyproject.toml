@@ -18,6 +18,8 @@ dependencies = [
     # [openai] also covers Ollama and any OpenAI-compatible endpoint.
     "pydantic-ai-slim[anthropic,openai,openrouter]>=2.13.0",
     "python-dotenv>=1.0",
+    # Signs the Starlette session cookie used for Steam sign-in.
+    "itsdangerous>=2.2",
     # Reuse the wiki client + parsers from the sibling MCP project for item lore.
     "tf2-wiki-mcp",
     "vdf>=3.4",
