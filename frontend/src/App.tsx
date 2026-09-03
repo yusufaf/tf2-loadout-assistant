@@ -62,7 +62,7 @@ export default function App() {
   const [me, setMe] = useState<Me>({ signed_in: false });
   const [authNote, setAuthNote] = useState("");
   const [inventory, setInventory] = useState<Inventory | null>(null);
-  const saved = useSavedLoadouts();
+  const saved = useSavedLoadouts(me.signed_in);
   const importRef = useRef<HTMLInputElement>(null);
 
   // Hide the advisor entirely when the API has no LLM configured.

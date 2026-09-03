@@ -141,3 +141,30 @@ class AuthSettings:
         base URL to build realm/return_to from.
         """
         return bool(self.session_secret and self.public_base_url)
+
+
+# Matches the plan's table-name convention (`<app>-<stage>-main`) and the region
+# every other AWS project here already uses -- see cdk/.
+DEFAULT_DYNAMODB_REGION = "us-west-2"
+
+
+@dataclass(frozen=True)
+class LoadoutsSettings:
+    table_name: str | None
+    region: str
+
+    @classmethod
+    def from_env(cls) -> LoadoutsSettings:
+        return cls(
+            table_name=_env("DYNAMODB_TABLE_NAME"),
+            region=_env("AWS_REGION") or DEFAULT_DYNAMODB_REGION,
+        )
+
+    @property
+    def enabled(self) -> bool:
+        """AWS credentials aren't checked here -- boto3 reads AWS_ACCESS_KEY_ID /
+        AWS_SECRET_ACCESS_KEY from the environment itself, its own native var names
+        (same "generic override" story as the LLM key), so the only thing this app
+        needs to decide is which table to point at.
+        """
+        return bool(self.table_name)
