@@ -48,6 +48,10 @@ Rules you must follow:
 - Two cosmetics cannot be worn together when their equip regions overlap. Some regions
   clash across different names (for example whole_head against hat), so never judge this
   yourself.
+- When the player asks for a look built from what they already own, pass
+  owned_only=True to search_cosmetics rather than guessing or filtering results
+  yourself. If their inventory isn't available this turn, say so instead of guessing
+  what they own.
 - Before finalizing suggested_defindexes, call check_conflicts on that exact set. If it
   reports any clash, swap one of the clashing items out and check again -- never hand back
   a suggestion you haven't confirmed is clash-free.
@@ -90,6 +94,10 @@ class LoadoutDeps:
     # Defindexes currently worn on the bench. Travels as an instruction, not a tool call,
     # so the agent can't "forget" to ask for it -- it's just there every turn.
     equipped: tuple[int, ...] = ()
+    # The player's real backpack, from their signed-in Steam inventory. None means
+    # unavailable this turn (signed out, private backpack, or a fetch error) --
+    # distinct from an empty set, which would mean "owns nothing in this catalog".
+    owned: frozenset[int] | None = None
 
 
 def _price_out(pricing: PricingService, defindex: int) -> dict | None:
@@ -187,6 +195,21 @@ def build_agent(
             "any of these you are not changing."
         )
 
+    @agent.instructions
+    def inventory_note(ctx: RunContext[LoadoutDeps]) -> str:
+        if ctx.deps.owned is None:
+            return (
+                "The player's real TF2 backpack is not available this turn (not "
+                "signed in through Steam, or their backpack is private). If they ask "
+                "for a look built from what they own, say you can't see their "
+                "backpack right now rather than guessing."
+            )
+        return (
+            f"The player owns {len(ctx.deps.owned)} of the cosmetics in this "
+            "catalog. Pass owned_only=True to search_cosmetics when they ask for a "
+            "look built from what they already have."
+        )
+
     @agent.tool
     def search_cosmetics(
         ctx: RunContext[LoadoutDeps],
@@ -194,6 +217,7 @@ def build_agent(
         query: str | None = None,
         limit: int = 20,
         max_ref: float | None = None,
+        owned_only: bool = False,
     ) -> list[dict]:
         """Find cosmetics, optionally narrowed to a class, a name substring, and a budget.
 
@@ -205,6 +229,9 @@ def build_agent(
                 convert automatically; items with no ref-comparable price (unpriced, or
                 priced in a currency with no metal exchange rate) are dropped rather
                 than assumed affordable.
+            owned_only: Keep only cosmetics in the player's real backpack. If their
+                inventory isn't available this turn, this returns nothing rather than
+                guessing what they own.
         """
         # catalog.search ignores the class filter, so compose the two by hand -- the
         # same way the /cosmetics route does.
@@ -218,6 +245,9 @@ def build_agent(
                 if (rv := ctx.deps.pricing.ref_value_for(c.defindex)) is not None
                 and rv <= max_ref
             ]
+        if owned_only:
+            owned = ctx.deps.owned or frozenset()
+            items = [c for c in items if c.defindex in owned]
         return [_summary(c, ctx.deps.pricing) for c in items[:limit]]
 
     @agent.tool
@@ -311,24 +341,28 @@ class LoadoutAgentService:
         prompt: str,
         history: Sequence[ModelMessage] | None = None,
         equipped: Sequence[int] | None = None,
+        owned: frozenset[int] | None = None,
     ) -> AgentRunResult[LoadoutReply]:
         return await self._agent.run(
             prompt,
-            deps=self._deps_for(equipped),
+            deps=self._deps_for(equipped, owned),
             message_history=history,
             usage_limits=self._limits,
         )
 
-    def _deps_for(self, equipped: Sequence[int] | None) -> LoadoutDeps:
+    def _deps_for(
+        self, equipped: Sequence[int] | None, owned: frozenset[int] | None = None
+    ) -> LoadoutDeps:
         # Replace, never mutate -- the service is shared across concurrent requests, and
-        # each turn's tray belongs only to that turn.
-        return replace(self._deps, equipped=tuple(equipped or ()))
+        # each turn's tray (and inventory) belongs only to that turn.
+        return replace(self._deps, equipped=tuple(equipped or ()), owned=owned)
 
     async def stream_reply(
         self,
         prompt: str,
         history: Sequence[ModelMessage] | None = None,
         equipped: Sequence[int] | None = None,
+        owned: frozenset[int] | None = None,
     ) -> AsyncIterator[dict]:
         """Run a turn, yielding progress as it happens.
 
@@ -349,7 +383,7 @@ class LoadoutAgentService:
             try:
                 result = await self._agent.run(
                     prompt,
-                    deps=self._deps_for(equipped),
+                    deps=self._deps_for(equipped, owned),
                     message_history=history,
                     usage_limits=self._limits,
                     event_stream_handler=on_events,

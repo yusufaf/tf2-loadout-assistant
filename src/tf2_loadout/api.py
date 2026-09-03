@@ -166,6 +166,24 @@ def create_app(
         ]
         return suggested, conflicts
 
+    async def _owned_for(request: Request) -> frozenset[int] | None:
+        """The signed-in player's real backpack, for the agent's owned_only tool.
+
+        None (not an empty set) whenever it isn't available -- signed out, no
+        inventory service configured, or the backpack fetch itself didn't come back
+        "ok" (private/not_found/error) -- so the agent says it can't see the
+        backpack instead of quietly treating "unavailable" as "owns nothing".
+        Chat is stateless in the transcript sense (CLAUDE.md), but inventory rides
+        the session cookie same as identity, not the client-sent history.
+        """
+        if auth is None or inventory is None:
+            return None
+        steam_id = request.session.get("steam_id")
+        if not steam_id:
+            return None
+        result = await inventory.fetch(steam_id)
+        return result.defindexes if result.status == "ok" else None
+
     @app.get("/healthz")
     def healthz() -> dict:
         return {
@@ -232,15 +250,16 @@ def create_app(
         }
 
     @app.post("/chat")
-    async def chat_turn(req: ChatRequest) -> ChatResponse:
+    async def chat_turn(req: ChatRequest, request: Request) -> ChatResponse:
         if chat is None:
             raise HTTPException(status_code=503, detail="chat service unavailable")
         try:
             history = ModelMessagesTypeAdapter.validate_python(req.history)
         except ValidationError:
             raise HTTPException(status_code=422, detail="malformed chat history")
+        owned = await _owned_for(request)
         try:
-            result = await chat.reply(req.message, history, req.equipped)
+            result = await chat.reply(req.message, history, req.equipped, owned)
         except UsageLimitExceeded:
             raise HTTPException(status_code=502, detail="the agent gave up mid-thought")
         except Exception as exc:
@@ -256,7 +275,7 @@ def create_app(
         )
 
     @app.post("/chat/stream")
-    async def chat_stream(req: ChatRequest) -> StreamingResponse:
+    async def chat_stream(req: ChatRequest, request: Request) -> StreamingResponse:
         """Same turn as /chat, as newline-delimited JSON with tool progress.
 
         NDJSON rather than SSE because EventSource cannot POST a body, and the
@@ -268,9 +287,10 @@ def create_app(
             history = ModelMessagesTypeAdapter.validate_python(req.history)
         except ValidationError:
             raise HTTPException(status_code=422, detail="malformed chat history")
+        owned = await _owned_for(request)
 
         async def lines():
-            async for event in chat.stream_reply(req.message, history, req.equipped):
+            async for event in chat.stream_reply(req.message, history, req.equipped, owned):
                 if event["kind"] == "final":
                     result = event["result"]
                     suggested, conflicts = _validate_suggestions(

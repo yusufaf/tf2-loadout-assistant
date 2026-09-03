@@ -99,6 +99,7 @@ async def test_search_cosmetics_schema_takes_class_and_query() -> None:
         "query",
         "limit",
         "max_ref",
+        "owned_only",
     }
 
 
@@ -165,6 +166,29 @@ async def test_search_filters_by_max_ref() -> None:
 
     items = _tool_returns(messages, "search_cosmetics")[0]
     assert [i["defindex"] for i in items] == [1]
+
+
+async def test_search_owned_only_keeps_just_the_backpack_items() -> None:
+    deps = _deps()
+    deps.owned = frozenset({1})
+    agent = build_agent(
+        _calls_then_finishes("search_cosmetics", {"used_by": "Spy", "owned_only": True})
+    )
+    with capture_run_messages() as messages:
+        await agent.run("dress me from what I own", deps=deps)
+    items = _tool_returns(messages, "search_cosmetics")[0]
+    assert [i["defindex"] for i in items] == [1]
+
+
+async def test_search_owned_only_returns_nothing_when_owned_is_unavailable() -> None:
+    # deps().owned defaults to None -- "unavailable", not "owns nothing" -- but the
+    # tool still must not guess: no data in means no items out.
+    agent = build_agent(
+        _calls_then_finishes("search_cosmetics", {"used_by": "Spy", "owned_only": True})
+    )
+    with capture_run_messages() as messages:
+        await agent.run("dress me from what I own", deps=_deps())
+    assert _tool_returns(messages, "search_cosmetics")[0] == []
 
 
 async def test_search_matches_any_keyword_in_a_multi_word_query() -> None:
@@ -444,3 +468,30 @@ async def test_equipped_does_not_leak_into_the_shared_deps() -> None:
     service = LoadoutAgentService(build_agent(TestModel()), deps)
     await service.reply("dress my Spy", history=None, equipped=[1, 2])
     assert deps.equipped == ()
+
+
+async def test_inventory_unavailable_tells_the_model_not_to_guess() -> None:
+    service = LoadoutAgentService(build_agent(TestModel()), _deps())
+    with capture_run_messages() as messages:
+        await service.reply("dress me from what I own", history=None)
+    text = _instructions(messages)
+    assert "not available this turn" in text
+    assert "rather than guessing" in text
+
+
+async def test_inventory_available_tells_the_model_the_owned_count() -> None:
+    service = LoadoutAgentService(build_agent(TestModel()), _deps())
+    with capture_run_messages() as messages:
+        await service.reply(
+            "dress me from what I own", history=None, owned=frozenset({1, 2})
+        )
+    text = _instructions(messages)
+    assert "owns 2" in text
+    assert "owned_only=True" in text
+
+
+async def test_owned_does_not_leak_into_the_shared_deps() -> None:
+    deps = _deps()
+    service = LoadoutAgentService(build_agent(TestModel()), deps)
+    await service.reply("dress my Spy", history=None, owned=frozenset({1}))
+    assert deps.owned is None
