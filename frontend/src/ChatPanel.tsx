@@ -87,7 +87,7 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
     if (!draftProvider || !apiKey) return;
     // Header values must be ISO-8859-1; a smart quote copied from a doc would make
     // fetch() throw later with no useful message, so catch it here.
-    if (/[^ -~]/.test(apiKey)) {
+    if (/[^\x20-\x7e]/.test(apiKey)) {
       setError("That key has characters an API key can't contain — paste it again.");
       return;
     }
