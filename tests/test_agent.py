@@ -19,7 +19,7 @@ from tf2_loadout.agent import (
     build_agent,
     build_chat_service,
 )
-from tf2_loadout.config import LLMSettings
+from tf2_loadout.config import LLMSettings, UserLLM
 from tf2_loadout.lore import LoreService
 from tf2_loadout.catalog import CatalogService
 from tf2_loadout.models import Cosmetic, Price
@@ -368,19 +368,57 @@ def test_agent_caps_output_tokens() -> None:
     assert MAX_OUTPUT_TOKENS <= 4096
 
 
-def test_misconfigured_provider_disables_chat_instead_of_crashing() -> None:
-    # Chat is optional; a bad LLM_MODEL must not take the whole API down at boot.
-    settings = LLMSettings(
-        model="nonsense-provider:whatever", api_key="x", base_url=None, max_requests=8
-    )
-    assert build_chat_service(settings, _deps()) is None
+def test_chat_service_builds_without_any_server_key(monkeypatch) -> None:
+    # The server holds no LLM credential; the service must come up regardless of env
+    # so the per-request key path is always available.
+    for var in ("LLM_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    service = build_chat_service(LLMSettings(max_requests=8), _deps())
+    assert isinstance(service, LoadoutAgentService)
 
 
-def test_valid_provider_builds_a_service() -> None:
-    settings = LLMSettings(
-        model="anthropic:claude-opus-4-8", api_key="x", base_url=None, max_requests=8
-    )
-    assert isinstance(build_chat_service(settings, _deps()), LoadoutAgentService)
+async def test_reply_builds_the_model_from_the_requests_key() -> None:
+    seen: list[UserLLM] = []
+
+    def factory(llm: UserLLM):
+        seen.append(llm)
+        return _calls_then_finishes("search_cosmetics", {"used_by": "Spy"})
+
+    # No baked model at all: a run without a per-request key must not silently
+    # fall back to anything.
+    service = LoadoutAgentService(build_agent(None), _deps(), model_factory=factory)
+    llm = UserLLM(provider="anthropic", api_key="sk-user")
+    result = await service.reply("dress my Spy", history=None, llm=llm)
+    assert seen == [llm]
+    assert result.output.suggested_defindexes == [1, 2]
+
+
+async def test_stream_reply_reports_a_rejected_key_distinctly() -> None:
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    def factory(llm: UserLLM):
+        raise ModelHTTPError(status_code=401, model_name="m", body={"error": "bad"})
+
+    service = LoadoutAgentService(build_agent(None), _deps(), model_factory=factory)
+    llm = UserLLM(provider="anthropic", api_key="sk-wrong")
+    events = [e async for e in service.stream_reply("hi", history=None, llm=llm)]
+    assert events == [
+        {"kind": "error", "code": "bad_key", "detail": "provider rejected the API key"}
+    ]
+
+
+async def test_stream_reply_keeps_other_provider_errors_generic() -> None:
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    def factory(llm: UserLLM):
+        raise ModelHTTPError(status_code=429, model_name="m", body=None)
+
+    service = LoadoutAgentService(build_agent(None), _deps(), model_factory=factory)
+    llm = UserLLM(provider="anthropic", api_key="sk-user")
+    events = [e async for e in service.stream_reply("hi", history=None, llm=llm)]
+    assert events[-1]["kind"] == "error"
+    assert "code" not in events[-1]
+    assert events[-1]["detail"].startswith("model error:")
 
 
 async def test_service_returns_structured_reply() -> None:

@@ -867,6 +867,97 @@ button {
   font-weight: 600;
 }
 
+/* Bring-your-own-key form: takes the message box's place until a key is stored. */
+.chat-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.chat-key-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: var(--t-sm);
+  color: var(--blu-deep);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.chat-key-toggle:hover {
+  color: var(--blu);
+}
+.chat-key-toggle:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+
+.chat-keyform {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  border: var(--bd);
+  background: var(--paper-lit);
+  padding: var(--s3);
+}
+.chat-keyform-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  font-size: var(--t-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+.chat-keyform-row select {
+  font: inherit;
+  font-size: var(--t-base);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  padding: var(--s2) var(--s3);
+  border: var(--bd);
+  background: var(--paper);
+  color: var(--ink);
+  accent-color: var(--blu-deep);
+}
+.chat-keyform-row select:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.chat-keyform-row .chat-input {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+.chat-key-note {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--ink-soft);
+}
+.chat-keyform-actions {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.chat-key-secondary {
+  background: var(--paper);
+  border: var(--bd);
+  color: var(--ink);
+  padding: var(--s1) var(--s3);
+  font-size: var(--t-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+.chat-key-secondary:hover {
+  background: var(--paper-dark);
+}
+.chat-key-secondary:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

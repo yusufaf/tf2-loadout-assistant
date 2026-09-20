@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  fetchChatProviders,
   fetchCosmetic,
   streamChat,
   ChatUnavailableError,
+  LlmKeyError,
+  type ChatProvider,
   type ChatStreamEvent,
   type Conflict,
   type Cosmetic,
 } from "./api";
 import { clashingIds } from "./filters";
+import { clearLlmKey, loadLlmKey, saveLlmKey, type LlmKey } from "./llmKey";
 
 /** What each tool is doing, in the player's terms rather than the function's. */
 const TOOL_LABELS: Record<string, string> = {
@@ -35,6 +39,9 @@ interface Props {
 const GREETING =
   "Tell me the look you're after — \"cop-style Spy\", \"gaudy Australian Sniper\" — and I'll dig through the backpack.";
 
+const KEY_NOTE =
+  "Your key stays in this browser. It's sent with each message and the server never keeps it.";
+
 export default function ChatPanel({ cls, loadout, onEquip }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [history, setHistory] = useState<unknown[]>([]);
@@ -44,6 +51,48 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
   const [error, setError] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
 
+  // The player's own provider key; there is no server-side fallback, so with none
+  // stored the key form takes the place of the message box.
+  const [llmKey, setLlmKey] = useState<LlmKey | null>(() => loadLlmKey());
+  const [providers, setProviders] = useState<ChatProvider[]>([]);
+  const [showKeyForm, setShowKeyForm] = useState(llmKey === null);
+  const [draftProvider, setDraftProvider] = useState(llmKey?.provider ?? "");
+  const [draftKey, setDraftKey] = useState("");
+
+  useEffect(() => {
+    fetchChatProviders().then((list) => {
+      setProviders(list);
+      setDraftProvider((cur) => cur || list[0]?.id || "");
+    });
+  }, []);
+
+  const providerLabel = (id: string) =>
+    providers.find((p) => p.id === id)?.label ?? id;
+
+  function saveKey(e: React.FormEvent) {
+    e.preventDefault();
+    const apiKey = draftKey.trim();
+    if (!draftProvider || !apiKey) return;
+    const key = { provider: draftProvider, apiKey };
+    saveLlmKey(key);
+    setLlmKey(key);
+    setDraftKey("");
+    setError("");
+    setShowKeyForm(false);
+  }
+
+  function forgetKey() {
+    clearLlmKey();
+    setLlmKey(null);
+    setDraftKey("");
+    setShowKeyForm(true);
+  }
+
+  function rejectKey(provider: string) {
+    setError(`${providerLabel(provider)} rejected that key. Check it and try again.`);
+    setShowKeyForm(true);
+  }
+
   // Keep the newest turn in view as the conversation grows.
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
@@ -52,7 +101,7 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text || busy || !llmKey) return;
 
     setInput("");
     setError("");
@@ -67,19 +116,23 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
 
     let final: ChatStreamEvent | null = null;
     let failure = "";
+    let badKey = false;
 
     try {
-      await streamChat(prompt, history, equipped, (event) => {
+      await streamChat(prompt, history, equipped, llmKey, (event) => {
         if (event.kind === "tool") {
           setProgress(TOOL_LABELS[event.name ?? ""] ?? "Working…");
         } else if (event.kind === "final") {
           final = event;
         } else if (event.kind === "error") {
+          badKey = event.code === "bad_key";
           failure = event.detail ?? "The advisor didn't answer. Try again?";
         }
       });
 
-      if (failure || !final) {
+      if (badKey) {
+        rejectKey(llmKey.provider);
+      } else if (failure || !final) {
         setError(failure || "The advisor didn't answer. Try again?");
       } else {
         const reply: ChatStreamEvent = final;
@@ -103,11 +156,15 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
         ]);
       }
     } catch (err) {
-      setError(
-        err instanceof ChatUnavailableError
-          ? "Chat is switched off — no LLM key configured."
-          : "The advisor didn't answer. Try again?"
-      );
+      if (err instanceof LlmKeyError) {
+        rejectKey(llmKey.provider);
+      } else {
+        setError(
+          err instanceof ChatUnavailableError
+            ? "Chat is switched off on the server right now."
+            : "The advisor didn't answer. Try again?"
+        );
+      }
     } finally {
       setBusy(false);
       setProgress("");
@@ -116,7 +173,20 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
 
   return (
     <section className="chat">
-      <h3>Ask the advisor</h3>
+      <div className="chat-head">
+        <h3>Ask the advisor</h3>
+        {llmKey && (
+          <button
+            type="button"
+            className="chat-key-toggle"
+            onClick={() => setShowKeyForm((v) => !v)}
+            aria-expanded={showKeyForm}
+            title={`Using your ${providerLabel(llmKey.provider)} key`}
+          >
+            {providerLabel(llmKey.provider)} key
+          </button>
+        )}
+      </div>
 
       <div className="chat-log" ref={logRef}>
         {turns.length === 0 && <p className="empty">{GREETING}</p>}
@@ -166,18 +236,74 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
         {error && <p className="chat-status error">{error}</p>}
       </div>
 
-      <form className="chat-form" onSubmit={submit}>
-        <input
-          className="search chat-input"
-          placeholder={`Describe a ${cls} look…`}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          disabled={busy}
-        />
-        <button className="chat-send" type="submit" disabled={busy || !input.trim()}>
-          Ask
-        </button>
-      </form>
+      {showKeyForm ? (
+        <form className="chat-keyform" onSubmit={saveKey}>
+          <label className="chat-keyform-row">
+            <span>Provider</span>
+            <select
+              value={draftProvider}
+              onChange={(e) => setDraftProvider(e.target.value)}
+              disabled={providers.length === 0}
+            >
+              {providers.length === 0 && <option value="">Loading…</option>}
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label} · {p.model}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="chat-keyform-row">
+            <span>API key</span>
+            <input
+              className="search chat-input"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={llmKey ? "Paste a new key to replace it" : "Paste your key"}
+              value={draftKey}
+              onChange={(e) => setDraftKey(e.target.value)}
+            />
+          </label>
+          <p className="chat-key-note">{KEY_NOTE}</p>
+          <div className="chat-keyform-actions">
+            <button
+              className="chat-send"
+              type="submit"
+              disabled={!draftProvider || !draftKey.trim()}
+            >
+              Save key
+            </button>
+            {llmKey && (
+              <>
+                <button
+                  type="button"
+                  className="chat-key-secondary"
+                  onClick={() => setShowKeyForm(false)}
+                >
+                  Cancel
+                </button>
+                <button type="button" className="chat-key-secondary" onClick={forgetKey}>
+                  Forget key
+                </button>
+              </>
+            )}
+          </div>
+        </form>
+      ) : (
+        <form className="chat-form" onSubmit={submit}>
+          <input
+            className="search chat-input"
+            placeholder={`Describe a ${cls} look…`}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            disabled={busy}
+          />
+          <button className="chat-send" type="submit" disabled={busy || !input.trim()}>
+            Ask
+          </button>
+        </form>
+      )}
     </section>
   );
 }

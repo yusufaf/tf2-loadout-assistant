@@ -1,7 +1,8 @@
 """The style-reasoning agent.
 
-Provider-agnostic by construction: the caller hands in a Pydantic AI model spec (see
-``config.build_model``) and nothing here knows or cares which vendor is behind it.
+Provider-agnostic by construction: the model is chosen per run from the player's own
+provider + key (see ``config.build_user_model``) and nothing here knows or cares which
+vendor is behind it. The agent itself is built once with no model at all.
 
 The agent recommends loadouts itself -- the tools only retrieve and validate. Pushing
 the recommendation into a tool would put the taste logic in Python and reduce the model
@@ -11,19 +12,24 @@ to a formatter.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, replace
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.agent import AgentRunResult
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import FunctionToolCallEvent, ModelMessage
 from pydantic_ai.models import Model
 from pydantic_ai.usage import UsageLimits
 
 from tf2_loadout.catalog import CatalogService
-from tf2_loadout.config import DEFAULT_MAX_REQUESTS, LLMSettings, build_model
+from tf2_loadout.config import (
+    DEFAULT_MAX_REQUESTS,
+    LLMSettings,
+    UserLLM,
+    build_user_model,
+)
 from tf2_loadout.lore import LoreService
 from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
@@ -158,9 +164,13 @@ def _summary(cosmetic: Cosmetic, pricing: PricingService) -> dict:
 
 
 def build_agent(
-    model: str | Model, *, instructions: str = SYSTEM_PROMPT
+    model: str | Model | None = None, *, instructions: str = SYSTEM_PROMPT
 ) -> Agent[LoadoutDeps, LoadoutReply]:
-    """Build a fresh agent. Constructed per call so tests can override in isolation."""
+    """Build a fresh agent. Constructed per call so tests can override in isolation.
+
+    ``model=None`` is the production shape: the model arrives with each run from the
+    player's key. Tests bake a ``TestModel``/``FunctionModel`` in instead.
+    """
     agent = Agent(
         model,
         deps_type=LoadoutDeps,
@@ -331,10 +341,12 @@ class LoadoutAgentService:
         agent: Agent[LoadoutDeps, LoadoutReply],
         deps: LoadoutDeps,
         max_requests: int = DEFAULT_MAX_REQUESTS,
+        model_factory: Callable[[UserLLM], Model] = build_user_model,
     ):
         self._agent = agent
         self._deps = deps
         self._limits = UsageLimits(request_limit=max_requests)
+        self._model_factory = model_factory
 
     async def reply(
         self,
@@ -342,13 +354,24 @@ class LoadoutAgentService:
         history: Sequence[ModelMessage] | None = None,
         equipped: Sequence[int] | None = None,
         owned: frozenset[int] | None = None,
+        llm: UserLLM | None = None,
     ) -> AgentRunResult[LoadoutReply]:
+        """Run one turn.
+
+        ``llm`` is the player's provider + key and the API always passes it. ``None``
+        runs on whatever model the agent was built with -- that exists for tests,
+        not for production, where the agent has no model of its own.
+        """
         return await self._agent.run(
             prompt,
             deps=self._deps_for(equipped, owned),
             message_history=history,
             usage_limits=self._limits,
+            model=self._model_for(llm),
         )
+
+    def _model_for(self, llm: UserLLM | None) -> Model | None:
+        return self._model_factory(llm) if llm is not None else None
 
     def _deps_for(
         self, equipped: Sequence[int] | None, owned: frozenset[int] | None = None
@@ -363,6 +386,7 @@ class LoadoutAgentService:
         history: Sequence[ModelMessage] | None = None,
         equipped: Sequence[int] | None = None,
         owned: frozenset[int] | None = None,
+        llm: UserLLM | None = None,
     ) -> AsyncIterator[dict]:
         """Run a turn, yielding progress as it happens.
 
@@ -370,6 +394,9 @@ class LoadoutAgentService:
         one terminal ``final`` or ``error`` event. Tool calls are the only progress
         worth reporting: the reply is structured output, so streaming its tokens would
         just leak half-built JSON.
+
+        A provider rejecting the key is the one error the player can fix, so it gets
+        its own ``code`` rather than the generic model-error text.
         """
         queue: asyncio.Queue[dict] = asyncio.Queue()
         done = object()
@@ -387,12 +414,20 @@ class LoadoutAgentService:
                     message_history=history,
                     usage_limits=self._limits,
                     event_stream_handler=on_events,
+                    model=self._model_for(llm),
                 )
                 queue.put_nowait({"kind": "final", "result": result})
             except UsageLimitExceeded:
                 queue.put_nowait(
                     {"kind": "error", "detail": "the agent gave up mid-thought"}
                 )
+            except ModelHTTPError as exc:
+                if is_rejected_key(exc):
+                    queue.put_nowait(
+                        {"kind": "error", "code": "bad_key", "detail": REJECTED_KEY}
+                    )
+                else:
+                    queue.put_nowait({"kind": "error", "detail": f"model error: {exc}"})
             except Exception as exc:
                 queue.put_nowait({"kind": "error", "detail": f"model error: {exc}"})
             finally:
@@ -414,22 +449,28 @@ class LoadoutAgentService:
     def from_settings(
         cls, settings: LLMSettings, deps: LoadoutDeps
     ) -> "LoadoutAgentService":
-        """Build from env-derived settings. The only place a provider is chosen."""
-        return cls(build_agent(build_model(settings)), deps, settings.max_requests)
+        """Build from env-derived settings. No model: each run brings its own."""
+        return cls(build_agent(None), deps, settings.max_requests)
+
+
+REJECTED_KEY = "provider rejected the API key"
+
+
+def is_rejected_key(exc: ModelHTTPError) -> bool:
+    """401/403 from the provider means the key, not the request, is the problem."""
+    return exc.status_code in (401, 403)
 
 
 def build_chat_service(
     settings: LLMSettings, deps: LoadoutDeps
 ) -> LoadoutAgentService | None:
-    """Build the chat service, or None if the provider config is unusable.
+    """Build the chat service, or None if it cannot be constructed.
 
-    Chat is an optional feature -- a typo in LLM_MODEL should disable it, not stop the
-    catalog API from serving.
+    Chat is an optional feature -- a broken agent build should disable it, not stop
+    the catalog API from serving.
     """
-    if not settings.enabled:
-        return None
     try:
         return LoadoutAgentService.from_settings(settings, deps)
     except Exception as exc:
-        print(f"chat disabled: {settings.model} could not be configured ({exc})")
+        print(f"chat disabled: agent could not be built ({exc})")
         return None

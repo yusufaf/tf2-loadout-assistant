@@ -11,12 +11,26 @@ from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 
+from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.models import Model
+
 from tf2_loadout.agent import LoadoutAgentService, LoadoutDeps, build_agent
 from tf2_loadout.models import Cosmetic, Price
 from tf2_loadout.catalog import CatalogService
 from tf2_loadout.lore import ItemLore, LoreService
 from tf2_loadout.pricing import PricingService
 from tf2_loadout.api import create_app
+from tf2_loadout.config import PROVIDERS
+
+# What the browser sends with every chat turn. The value is never checked here --
+# the stub factory below ignores it -- but its absence must be a 401.
+LLM_HEADERS = {"X-LLM-Provider": "anthropic", "X-LLM-API-Key": "sk-test"}
+
+
+def _service(model: Model, deps: LoadoutDeps) -> LoadoutAgentService:
+    """Production shape (an agent with no model of its own) with a canned model
+    standing in for whatever the player's key would have built."""
+    return LoadoutAgentService(build_agent(None), deps, model_factory=lambda llm: model)
 
 
 class _StubWiki:
@@ -94,8 +108,8 @@ def _chat_client() -> TestClient:
         [Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")]
     )
     pricing = PricingService({})
-    chat = LoadoutAgentService(
-        build_agent(FunctionModel(model_fn)),
+    chat = _service(
+        FunctionModel(model_fn),
         LoadoutDeps(catalog=catalog, pricing=pricing, lore=None),
     )
     return TestClient(create_app(catalog, pricing, None, chat))
@@ -113,7 +127,7 @@ def test_healthz_reports_chat_availability():
 
 
 def test_chat_returns_message_and_suggestions():
-    r = _chat_client().post("/chat", json={"message": "dress my Spy"})
+    r = _chat_client().post("/chat", json={"message": "dress my Spy"}, headers=LLM_HEADERS)
     assert r.status_code == 200
     body = r.json()
     assert body["message"] == "Try the fedora."
@@ -143,12 +157,12 @@ def test_chat_reports_conflicts_in_the_suggested_set():
         ]
     )
     pricing = PricingService({})
-    chat = LoadoutAgentService(
-        build_agent(FunctionModel(model_fn)),
+    chat = _service(
+        FunctionModel(model_fn),
         LoadoutDeps(catalog=catalog, pricing=pricing, lore=None),
     )
     client = TestClient(create_app(catalog, pricing, None, chat))
-    r = client.post("/chat", json={"message": "give me two hats"})
+    r = client.post("/chat", json={"message": "give me two hats"}, headers=LLM_HEADERS)
     body = r.json()
     assert body["suggested_defindexes"] == [1, 3]
     assert len(body["conflicts"]) == 1
@@ -179,18 +193,18 @@ def test_chat_forwards_equipped_to_the_agent():
         [Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")]
     )
     pricing = PricingService({})
-    chat = LoadoutAgentService(
-        build_agent(FunctionModel(model_fn)),
+    chat = _service(
+        FunctionModel(model_fn),
         LoadoutDeps(catalog=catalog, pricing=pricing, lore=None),
     )
     client = TestClient(create_app(catalog, pricing, None, chat))
-    r = client.post("/chat", json={"message": "hi", "equipped": [1]})
+    r = client.post("/chat", json={"message": "hi", "equipped": [1]}, headers=LLM_HEADERS)
     assert r.status_code == 200
 
 
 def test_chat_rejects_oversized_equipped_list():
     client = _chat_client()
-    r = client.post("/chat", json={"message": "hi", "equipped": list(range(50))})
+    r = client.post("/chat", json={"message": "hi", "equipped": list(range(50))}, headers=LLM_HEADERS)
     assert r.status_code == 422
 
 
@@ -212,12 +226,12 @@ def test_chat_drops_defindexes_that_are_not_in_the_catalog():
         [Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")]
     )
     pricing = PricingService({})
-    chat = LoadoutAgentService(
-        build_agent(FunctionModel(model_fn)),
+    chat = _service(
+        FunctionModel(model_fn),
         LoadoutDeps(catalog=catalog, pricing=pricing, lore=None),
     )
     client = TestClient(create_app(catalog, pricing, None, chat))
-    r = client.post("/chat", json={"message": "dress my Spy"})
+    r = client.post("/chat", json={"message": "dress my Spy"}, headers=LLM_HEADERS)
     assert r.json()["suggested_defindexes"] == [1]
 
 
@@ -235,21 +249,19 @@ def test_chat_stream_emits_tool_progress_then_a_final_line():
         [Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")]
     )
     pricing = PricingService({})
-    chat = LoadoutAgentService(
-        build_agent(
-            TestModel(
-                custom_output_args={
-                    "message": "Try the fedora.",
-                    # 999 is invented; the stream must drop it like /chat does.
-                    "suggested_defindexes": [1, 999],
-                }
-            )
+    chat = _service(
+        TestModel(
+            custom_output_args={
+                "message": "Try the fedora.",
+                # 999 is invented; the stream must drop it like /chat does.
+                "suggested_defindexes": [1, 999],
+            }
         ),
         LoadoutDeps(catalog=catalog, pricing=pricing, lore=None),
     )
     client = TestClient(create_app(catalog, pricing, None, chat))
 
-    r = client.post("/chat/stream", json={"message": "dress my Spy"})
+    r = client.post("/chat/stream", json={"message": "dress my Spy"}, headers=LLM_HEADERS)
     assert r.status_code == 200
 
     lines = _stream_lines(r)
@@ -264,9 +276,11 @@ def test_chat_stream_emits_tool_progress_then_a_final_line():
 
 def test_chat_history_round_trips():
     client = _chat_client()
-    first = client.post("/chat", json={"message": "dress my Spy"}).json()
+    first = client.post("/chat", json={"message": "dress my Spy"}, headers=LLM_HEADERS).json()
     second = client.post(
-        "/chat", json={"message": "and a hat?", "history": first["history"]}
+        "/chat",
+        json={"message": "and a hat?", "history": first["history"]},
+        headers=LLM_HEADERS,
     )
     assert second.status_code == 200
     assert len(second.json()["history"]) > len(first["history"])
@@ -274,7 +288,7 @@ def test_chat_history_round_trips():
 
 def test_chat_rejects_oversized_history():
     client = _chat_client()
-    r = client.post("/chat", json={"message": "hi", "history": [{}] * 200})
+    r = client.post("/chat", json={"message": "hi", "history": [{}] * 200}, headers=LLM_HEADERS)
     assert r.status_code == 422
 
 
@@ -342,3 +356,79 @@ def test_limit_zero_returns_everything():
 
     assert len(capped) == 1
     assert len(everything) == 3
+
+
+def test_chat_requires_the_players_key():
+    client = _chat_client()
+    r = client.post("/chat", json={"message": "hi"})
+    assert r.status_code == 401
+    assert r.json()["detail"] == "llm key required"
+
+    r = client.post("/chat/stream", json={"message": "hi"})
+    assert r.status_code == 401
+
+    # Provider without a key, and key without a provider, are both incomplete.
+    r = client.post(
+        "/chat", json={"message": "hi"}, headers={"X-LLM-Provider": "anthropic"}
+    )
+    assert r.status_code == 401
+    r = client.post("/chat", json={"message": "hi"}, headers={"X-LLM-API-Key": "sk"})
+    assert r.status_code == 401
+
+
+def test_chat_rejects_a_provider_outside_the_allowlist():
+    r = _chat_client().post(
+        "/chat",
+        json={"message": "hi"},
+        headers={"X-LLM-Provider": "ollama", "X-LLM-API-Key": "sk"},
+    )
+    assert r.status_code == 401
+    assert r.json()["detail"] == "unknown llm provider"
+
+
+def _rejecting_client() -> TestClient:
+    """A client whose provider answers every turn with 401."""
+
+    def factory(llm):
+        raise ModelHTTPError(status_code=401, model_name="m", body={"error": "nope"})
+
+    catalog = CatalogService(
+        [Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")]
+    )
+    pricing = PricingService({})
+    chat = LoadoutAgentService(
+        build_agent(None),
+        LoadoutDeps(catalog=catalog, pricing=pricing, lore=None),
+        model_factory=factory,
+    )
+    return TestClient(create_app(catalog, pricing, None, chat))
+
+
+def test_chat_maps_a_rejected_key_to_401():
+    r = _rejecting_client().post(
+        "/chat", json={"message": "hi"}, headers=LLM_HEADERS
+    )
+    assert r.status_code == 401
+    assert r.json()["detail"] == "provider rejected the API key"
+    # The key itself must never echo back.
+    assert "sk-test" not in r.text
+
+
+def test_chat_stream_flags_a_rejected_key_in_band():
+    r = _rejecting_client().post(
+        "/chat/stream", json={"message": "hi"}, headers=LLM_HEADERS
+    )
+    assert r.status_code == 200
+    lines = _stream_lines(r)
+    assert lines == [
+        {"kind": "error", "code": "bad_key", "detail": "provider rejected the API key"}
+    ]
+
+
+def test_chat_providers_lists_the_allowlist_even_without_a_service():
+    for client in (_client(), _chat_client()):
+        r = client.get("/chat/providers")
+        assert r.status_code == 200
+        providers = r.json()["providers"]
+        assert [p["id"] for p in providers] == [spec.id for spec in PROVIDERS]
+        assert all(p["label"] and p["model"] for p in providers)

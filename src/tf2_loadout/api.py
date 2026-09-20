@@ -15,15 +15,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_core import to_jsonable_python
 from starlette.middleware.sessions import SessionMiddleware
 
-from tf2_loadout.agent import LoadoutAgentService, LoadoutDeps, build_chat_service
+from tf2_loadout.agent import (
+    REJECTED_KEY,
+    LoadoutAgentService,
+    LoadoutDeps,
+    build_chat_service,
+    is_rejected_key,
+)
 from tf2_loadout.auth import SteamAuthError, SteamAuthService
 from tf2_loadout.catalog import CatalogService, load_defindex_names
-from tf2_loadout.config import AuthSettings, LLMSettings, LoadoutsSettings, load_env
+from tf2_loadout.config import (
+    PROVIDERS,
+    AuthSettings,
+    LLMSettings,
+    LoadoutsSettings,
+    UserLLM,
+    load_env,
+    provider_spec,
+)
 from tf2_loadout.inventory import InventoryService
 from tf2_loadout.loadouts import DynamoLoadoutStore, LoadoutStore, SavedLoadout
 from tf2_loadout.lore import LoreService
@@ -33,6 +47,12 @@ from tf2_loadout.steam_web import SteamWebClient
 
 CACHE_DIR = Path(__file__).resolve().parents[2] / ".cache"
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+# The player's own LLM credential rides each chat request in headers rather than the
+# body or the session: the body is the transcript (which the client stores and sends
+# back), and the session cookie is signed but not encrypted.
+LLM_PROVIDER_HEADER = "X-LLM-Provider"
+LLM_KEY_HEADER = "X-LLM-API-Key"
 
 
 class PriceOut(BaseModel):
@@ -207,6 +227,32 @@ def create_app(
         result = await inventory.fetch(steam_id)
         return result.defindexes if result.status == "ok" else None
 
+    def _user_llm(request: Request) -> UserLLM:
+        """The player's own provider + key, from the request headers.
+
+        The server holds no LLM credential, so a turn without both is a 401 -- the
+        same status a rejected key gets, so the UI has exactly one signal meaning
+        "fix your key". Nothing here logs or echoes the key.
+        """
+        provider = (request.headers.get(LLM_PROVIDER_HEADER) or "").strip()
+        api_key = (request.headers.get(LLM_KEY_HEADER) or "").strip()
+        if not provider or not api_key:
+            raise HTTPException(status_code=401, detail="llm key required")
+        if provider_spec(provider) is None:
+            raise HTTPException(status_code=401, detail="unknown llm provider")
+        return UserLLM(provider=provider, api_key=api_key)
+
+    @app.get("/chat/providers")
+    def chat_providers() -> dict:
+        """The allowlist the key form's dropdown is built from. Static, so it is
+        served even when the chat service itself failed to construct."""
+        return {
+            "providers": [
+                {"id": spec.id, "label": spec.label, "model": spec.model}
+                for spec in PROVIDERS
+            ]
+        }
+
     @app.get("/healthz")
     def healthz() -> dict:
         return {
@@ -281,11 +327,16 @@ def create_app(
             history = ModelMessagesTypeAdapter.validate_python(req.history)
         except ValidationError:
             raise HTTPException(status_code=422, detail="malformed chat history")
+        llm = _user_llm(request)
         owned = await _owned_for(request)
         try:
-            result = await chat.reply(req.message, history, req.equipped, owned)
+            result = await chat.reply(req.message, history, req.equipped, owned, llm)
         except UsageLimitExceeded:
             raise HTTPException(status_code=502, detail="the agent gave up mid-thought")
+        except ModelHTTPError as exc:
+            if is_rejected_key(exc):
+                raise HTTPException(status_code=401, detail=REJECTED_KEY)
+            raise HTTPException(status_code=502, detail=f"model error: {exc}")
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"model error: {exc}")
         suggested, conflicts = _validate_suggestions(
@@ -311,10 +362,15 @@ def create_app(
             history = ModelMessagesTypeAdapter.validate_python(req.history)
         except ValidationError:
             raise HTTPException(status_code=422, detail="malformed chat history")
+        # Resolved before the stream opens so a missing key is a real 401, not an
+        # in-band error line on a 200.
+        llm = _user_llm(request)
         owned = await _owned_for(request)
 
         async def lines():
-            async for event in chat.stream_reply(req.message, history, req.equipped, owned):
+            async for event in chat.stream_reply(
+                req.message, history, req.equipped, owned, llm
+            ):
                 if event["kind"] == "final":
                     result = event["result"]
                     suggested, conflicts = _validate_suggestions(
@@ -485,10 +541,8 @@ def main() -> None:
     chat = build_chat_service(
         settings, LoadoutDeps(catalog=catalog, pricing=pricing, lore=lore)
     )
-    if chat is None and not settings.enabled:
-        print("chat disabled: no LLM key found (see .env.example)")
-    elif chat is not None:
-        print(f"chat enabled: {settings.model}")
+    if chat is not None:
+        print("chat enabled: players bring their own provider key per request")
 
     auth_settings = AuthSettings.from_env()
     auth = None
