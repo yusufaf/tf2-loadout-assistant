@@ -1,10 +1,14 @@
-"""Environment-driven config for the LLM layer.
+"""Config for the LLM layer.
 
-The provider is chosen entirely by ``LLM_MODEL`` -- a Pydantic AI ``provider:model``
-string -- so switching between Anthropic, OpenRouter, a local Ollama box, or anything
-else needs no code change. Keys are resolved the way Pydantic AI expects: each provider
-reads its own native env var, and ``LLM_API_KEY`` is a generic override that we export
-under that native name at startup (see ``apply_provider_env``).
+The server holds no LLM credential at all. Every chat turn arrives with the player's
+own provider choice and API key (``X-LLM-Provider`` / ``X-LLM-API-Key`` headers), and
+``build_user_model`` turns that pair into a Pydantic AI model object for that one run.
+The provider objects are constructed explicitly with the key rather than through the
+providers' native env vars: the key is per-request, and anything process-global would
+leak one player's key into another player's turn.
+
+What the environment still decides is only the runaway-loop guard
+(``LLM_MAX_REQUESTS``) and, for ``--live`` tests, which key to test with.
 """
 
 from __future__ import annotations
@@ -12,37 +16,88 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pydantic_ai.models import Model
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-DEFAULT_MODEL = "anthropic:claude-opus-4-8"
 # Measured: a plain loadout turn takes ~8 model requests; a hard style question that
 # checks item lore before committing took 13. Leave real headroom above that -- the
 # limit exists to stop a runaway loop, not to cut off honest work.
 DEFAULT_MAX_REQUESTS = 25
 
-# Native API-key env var per provider prefix. Pydantic AI's providers read these
-# themselves, so we never have to construct a provider object by hand.
-_PROVIDER_KEY_VARS = {
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-    "deepseek": "DEEPSEEK_API_KEY",
-    "github": "GITHUB_API_KEY",
-}
 
-# Providers that need no key at all (local inference).
-_KEYLESS_PROVIDERS = frozenset({"ollama"})
+@dataclass(frozen=True)
+class ProviderSpec:
+    id: str
+    label: str
+    # One fixed model per provider. The system prompt is tuned against frontier
+    # models; letting players type any model name in is how weak models end up
+    # inventing cosmetics.
+    model: str
 
-_PROVIDER_BASE_URL_VARS = {
-    "ollama": "OLLAMA_BASE_URL",
-    "openai": "OPENAI_BASE_URL",
-}
 
-# Pydantic AI's Ollama provider refuses to construct without an explicit base URL, so
-# "ollama with no further config" has to resolve to the local daemon or startup fails.
-DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
-_PROVIDER_DEFAULT_BASE_URLS = {"ollama": DEFAULT_OLLAMA_BASE_URL}
+# The allowlist the UI dropdown is built from and the header is validated against.
+# Matches the Pydantic AI extras installed in pyproject -- add an extra before adding
+# a row here.
+PROVIDERS: tuple[ProviderSpec, ...] = (
+    ProviderSpec("anthropic", "Anthropic", "claude-opus-4-8"),
+    ProviderSpec("openai", "OpenAI", "gpt-5"),
+    ProviderSpec("openrouter", "OpenRouter", "anthropic/claude-opus-4-8"),
+)
+
+
+def provider_ids() -> tuple[str, ...]:
+    return tuple(spec.id for spec in PROVIDERS)
+
+
+def provider_spec(provider: str) -> ProviderSpec | None:
+    return next((spec for spec in PROVIDERS if spec.id == provider), None)
+
+
+class UnknownProviderError(ValueError):
+    """The provider id is not in ``PROVIDERS``."""
+
+
+@dataclass(frozen=True)
+class UserLLM:
+    """What one request brings: which provider to talk to, and with whose key."""
+
+    provider: str
+    api_key: str
+
+
+def build_user_model(llm: UserLLM) -> Model:
+    """Construct a model for one run from the player's provider + key.
+
+    Provider imports live inside the function so an uninstalled extra fails the one
+    request that needs it, not app startup.
+    """
+    spec = provider_spec(llm.provider)
+    if spec is None:
+        raise UnknownProviderError(llm.provider)
+    api_key = llm.api_key.strip()
+    if not api_key:
+        raise ValueError("empty api key")
+
+    if spec.id == "anthropic":
+        from pydantic_ai.models.anthropic import AnthropicModel
+        from pydantic_ai.providers.anthropic import AnthropicProvider
+
+        return AnthropicModel(spec.model, provider=AnthropicProvider(api_key=api_key))
+    if spec.id == "openai":
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        return OpenAIChatModel(spec.model, provider=OpenAIProvider(api_key=api_key))
+    if spec.id == "openrouter":
+        from pydantic_ai.models.openrouter import OpenRouterModel
+        from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+        return OpenRouterModel(spec.model, provider=OpenRouterProvider(api_key=api_key))
+    raise UnknownProviderError(llm.provider)  # pragma: no cover -- PROVIDERS drifted
 
 
 def _env(name: str) -> str | None:
@@ -66,56 +121,12 @@ def load_env() -> None:
 
 @dataclass(frozen=True)
 class LLMSettings:
-    model: str
-    api_key: str | None
-    base_url: str | None
     max_requests: int
 
     @classmethod
     def from_env(cls) -> LLMSettings:
         raw_limit = _env("LLM_MAX_REQUESTS")
-        return cls(
-            model=_env("LLM_MODEL") or DEFAULT_MODEL,
-            api_key=_env("LLM_API_KEY"),
-            base_url=_env("LLM_BASE_URL"),
-            max_requests=int(raw_limit) if raw_limit else DEFAULT_MAX_REQUESTS,
-        )
-
-    @property
-    def provider(self) -> str:
-        return self.model.split(":", 1)[0]
-
-    @property
-    def enabled(self) -> bool:
-        """Whether we have enough to talk to the configured provider."""
-        if self.api_key or self.base_url:
-            return True
-        if self.provider in _KEYLESS_PROVIDERS:
-            return True
-        native_var = _PROVIDER_KEY_VARS.get(self.provider)
-        return bool(native_var and _env(native_var))
-
-
-def apply_provider_env(settings: LLMSettings) -> None:
-    """Export generic overrides under the provider's native env var names.
-
-    This is what lets ``build_model`` hand Pydantic AI a bare ``provider:model`` string
-    and have credentials resolve correctly, with no per-provider dispatch table here.
-    """
-    if settings.api_key:
-        native_var = _PROVIDER_KEY_VARS.get(settings.provider)
-        if native_var:
-            os.environ[native_var] = settings.api_key
-    base_url = settings.base_url or _PROVIDER_DEFAULT_BASE_URLS.get(settings.provider)
-    if base_url:
-        base_url_var = _PROVIDER_BASE_URL_VARS.get(settings.provider, "OPENAI_BASE_URL")
-        os.environ[base_url_var] = base_url
-
-
-def build_model(settings: LLMSettings) -> str:
-    """Resolve settings to the model spec handed to ``Agent(...)``."""
-    apply_provider_env(settings)
-    return settings.model
+        return cls(max_requests=int(raw_limit) if raw_limit else DEFAULT_MAX_REQUESTS)
 
 
 @dataclass(frozen=True)
@@ -164,7 +175,6 @@ class LoadoutsSettings:
     def enabled(self) -> bool:
         """AWS credentials aren't checked here -- boto3 reads AWS_ACCESS_KEY_ID /
         AWS_SECRET_ACCESS_KEY from the environment itself, its own native var names
-        (same "generic override" story as the LLM key), so the only thing this app
-        needs to decide is which table to point at.
+        so the only thing this app needs to decide is which table to point at.
         """
         return bool(self.table_name)

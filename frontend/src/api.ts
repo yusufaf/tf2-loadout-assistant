@@ -1,4 +1,5 @@
 import type { ConflictMatrix } from "./conflicts";
+import type { LlmKey } from "./llmKey";
 
 export interface Price {
   currency: string;
@@ -75,8 +76,48 @@ export interface ChatReply {
   history: unknown[];
 }
 
-/** The API is up but has no LLM configured, so the panel should stay hidden. */
+/** The API is up but the chat service failed to build, so the panel should stay hidden. */
 export class ChatUnavailableError extends Error {}
+
+/** The turn never reached the model because the player's key was missing, for a
+ * provider the server doesn't know, or rejected by the provider itself (401). The
+ * one error the panel answers by reopening the key form. */
+export class LlmKeyError extends Error {}
+
+export interface ChatProvider {
+  id: string;
+  label: string;
+  /** The one fixed model this provider is used with; shown, not editable. */
+  model: string;
+}
+
+/** The dropdown's contents come from the server's allowlist so the two can't drift.
+ * `[]` on failure: the form still renders, the player just can't pick anything. */
+export async function fetchChatProviders(): Promise<ChatProvider[]> {
+  try {
+    const res = await fetch(`${BASE}/chat/providers`);
+    if (!res.ok) return [];
+    return (await res.json()).providers ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** The key travels in headers, never the body: the body is the transcript, which
+ * the client keeps and resends, and nothing in it should ever be worth stealing. */
+function chatHeaders(llm: LlmKey): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "X-LLM-Provider": llm.provider,
+    "X-LLM-API-Key": llm.apiKey,
+  };
+}
+
+function throwForChatStatus(res: Response): void {
+  if (res.status === 503) throw new ChatUnavailableError("chat not configured");
+  if (res.status === 401) throw new LlmKeyError("llm key rejected or missing");
+  if (!res.ok) throw new Error(`chat ${res.status}`);
+}
 
 export async function fetchChatAvailable(): Promise<boolean> {
   try {
@@ -194,15 +235,15 @@ export async function deleteLoadout(id: string): Promise<void> {
 export async function sendChat(
   message: string,
   history: unknown[],
-  equipped: number[]
+  equipped: number[],
+  llm: LlmKey
 ): Promise<ChatReply> {
   const res = await fetch(`${BASE}/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: chatHeaders(llm),
     body: JSON.stringify({ message, history, equipped }),
   });
-  if (res.status === 503) throw new ChatUnavailableError("chat not configured");
-  if (!res.ok) throw new Error(`chat ${res.status}`);
+  throwForChatStatus(res);
   return res.json();
 }
 
@@ -215,6 +256,8 @@ export interface ChatStreamEvent {
   conflicts?: Conflict[];
   history?: unknown[];
   detail?: string;
+  /** Set on an `error` event the player can fix themselves: the provider said 401. */
+  code?: "bad_key";
 }
 
 /**
@@ -227,15 +270,16 @@ export async function streamChat(
   message: string,
   history: unknown[],
   equipped: number[],
+  llm: LlmKey,
   onEvent: (event: ChatStreamEvent) => void
 ): Promise<void> {
   const res = await fetch(`${BASE}/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: chatHeaders(llm),
     body: JSON.stringify({ message, history, equipped }),
   });
-  if (res.status === 503) throw new ChatUnavailableError("chat not configured");
-  if (!res.ok || !res.body) throw new Error(`chat ${res.status}`);
+  throwForChatStatus(res);
+  if (!res.body) throw new Error(`chat ${res.status}`);
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

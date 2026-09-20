@@ -15,9 +15,9 @@ primary_region = 'lax'
   dockerfile = 'Dockerfile'
 
 [env]
-  # Chat is optional: the API serves the catalog fine with no LLM key, and
-  # /healthz reports "chat": false. To enable it:
-  #   fly secrets set --app tf2-loadout-af LLM_API_KEY=<your anthropic key>
+  # Chat needs no server-side secret: every player pastes their own provider key
+  # into the browser and it rides each /chat request as a header. There is no
+  # LLM_API_KEY to set here, on purpose -- the server never holds one.
   # BACKPACK_TF_API_KEY is dev-only — used by `uv run pytest --live` to refresh
   # .cache/, not by the running app.
   # STEAM_API_KEY is dev-only for the catalog cache too, but is ALSO a runtime
@@ -34,7 +34,6 @@ primary_region = 'lax'
   #   fly secrets set --app tf2-loadout-af \
   #     DYNAMODB_TABLE_NAME=tf2-loadout-production-main AWS_REGION=us-west-2 \
   #     AWS_ACCESS_KEY_ID=<key> AWS_SECRET_ACCESS_KEY=<secret>
-  LLM_MODEL = 'anthropic:claude-opus-4-8'
 
 [http_service]
   internal_port = 8000

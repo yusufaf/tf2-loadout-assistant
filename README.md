@@ -17,21 +17,17 @@ loadouts from a described style ("look like a cop").
 
 Frontend visual/styling conventions live in [`DESIGN.md`](./DESIGN.md).
 
-## The advisor is provider-agnostic
+## The advisor runs on your own API key
 
-The chat advisor runs on [Pydantic AI](https://ai.pydantic.dev/), so the model is chosen
-entirely by one environment variable and switching providers needs no code change:
+The chat advisor runs on [Pydantic AI](https://ai.pydantic.dev/), and the server holds
+no LLM credential at all. The first time you open the advisor it asks for a provider
+(Anthropic, OpenAI, or OpenRouter — one fixed model each) and an API key. The key is
+kept in your browser's `localStorage` only; it travels with each message as a request
+header, the server builds a model for that one turn, and nothing is stored or logged
+server-side. Clear it any time with "Forget key".
 
-```sh
-LLM_MODEL=anthropic:claude-opus-4-8                 # the default
-LLM_MODEL=openrouter:google/gemini-3.1-flash-lite   # anything OpenRouter fronts
-LLM_MODEL=ollama:qwen3.5                            # local, no key needed
-```
-
-Set `LLM_API_KEY` to the matching key, or export the provider's own variable
-(`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, …) if you already have one. With no key
-configured the API still serves the catalog; `/healthz` reports `"chat": false` and the
-frontend hides the panel.
+`/healthz` reports `"chat": true` whenever the service built; a turn without a key, or
+with one the provider rejects, is a `401` and the panel reopens the key form.
 
 Weaker models are the main quality risk here — small local models tend to recommend
 items they never looked up. The API re-resolves every suggested defindex against the

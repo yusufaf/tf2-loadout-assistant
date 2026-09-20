@@ -21,6 +21,8 @@ from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
 from tf2_loadout.api import create_app
 
+LLM_HEADERS = {"X-LLM-Provider": "anthropic", "X-LLM-API-Key": "sk-test"}
+
 STEAM_ID = "76561197960287930"
 
 
@@ -71,11 +73,11 @@ def _client(auth=None, inventory=None) -> TestClient:
         [Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")]
     )
     pricing = PricingService({})
+    model = FunctionModel(_echoing_model_fn, stream_function=_echoing_stream_fn)
     chat = LoadoutAgentService(
-        build_agent(
-            FunctionModel(_echoing_model_fn, stream_function=_echoing_stream_fn)
-        ),
+        build_agent(None),
         LoadoutDeps(catalog=catalog, pricing=pricing, lore=None),
+        model_factory=lambda llm: model,
     )
     return TestClient(
         create_app(
@@ -104,34 +106,34 @@ def _signed_in_client(inventory=None) -> TestClient:
 
 def test_signed_out_chat_sees_no_inventory():
     client = _client(auth=_StubAuth(), inventory=_StubInventory(InventoryResult("ok", frozenset({1}), 0.0)))
-    r = client.post("/chat", json={"message": "dress me from what I own"})
+    r = client.post("/chat", json={"message": "dress me from what I own"}, headers=LLM_HEADERS)
     assert "not available this turn" in r.json()["message"]
 
 
 def test_signed_in_with_ok_inventory_reaches_the_agent():
     stub = _StubInventory(InventoryResult("ok", frozenset({1}), 0.0))
     client = _signed_in_client(inventory=stub)
-    r = client.post("/chat", json={"message": "dress me from what I own"})
+    r = client.post("/chat", json={"message": "dress me from what I own"}, headers=LLM_HEADERS)
     assert "owns 1" in r.json()["message"]
 
 
 def test_signed_in_with_private_backpack_reads_as_unavailable():
     stub = _StubInventory(InventoryResult("private", frozenset(), 0.0))
     client = _signed_in_client(inventory=stub)
-    r = client.post("/chat", json={"message": "dress me from what I own"})
+    r = client.post("/chat", json={"message": "dress me from what I own"}, headers=LLM_HEADERS)
     assert "not available this turn" in r.json()["message"]
 
 
 def test_no_inventory_service_configured_reads_as_unavailable():
     client = _signed_in_client(inventory=None)
-    r = client.post("/chat", json={"message": "dress me from what I own"})
+    r = client.post("/chat", json={"message": "dress me from what I own"}, headers=LLM_HEADERS)
     assert "not available this turn" in r.json()["message"]
 
 
 def test_chat_stream_also_receives_owned_inventory():
     stub = _StubInventory(InventoryResult("ok", frozenset({1}), 0.0))
     client = _signed_in_client(inventory=stub)
-    r = client.post("/chat/stream", json={"message": "dress me from what I own"})
+    r = client.post("/chat/stream", json={"message": "dress me from what I own"}, headers=LLM_HEADERS)
     lines = [json.loads(line) for line in r.text.splitlines() if line.strip()]
     final = lines[-1]
     assert final["kind"] == "final"
