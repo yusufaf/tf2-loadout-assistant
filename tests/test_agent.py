@@ -5,6 +5,7 @@ No network: schemas are pinned with TestModel, behavior is driven with FunctionM
 
 from __future__ import annotations
 
+import pytest
 from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
@@ -407,11 +408,13 @@ async def test_stream_reply_reports_a_rejected_key_distinctly() -> None:
     ]
 
 
-async def test_stream_reply_keeps_other_provider_errors_generic() -> None:
+@pytest.mark.parametrize("status", [403, 429])
+async def test_stream_reply_keeps_other_provider_errors_generic(status: int) -> None:
+    # 403 in particular is not a bad key: OpenRouter uses it for moderation flags.
     from pydantic_ai.exceptions import ModelHTTPError
 
     def factory(llm: UserLLM):
-        raise ModelHTTPError(status_code=429, model_name="m", body=None)
+        raise ModelHTTPError(status_code=status, model_name="m", body=None)
 
     service = LoadoutAgentService(build_agent(None), _deps(), model_factory=factory)
     llm = UserLLM(provider="anthropic", api_key="sk-user")

@@ -457,8 +457,10 @@ REJECTED_KEY = "provider rejected the API key"
 
 
 def is_rejected_key(exc: ModelHTTPError) -> bool:
-    """401/403 from the provider means the key, not the request, is the problem."""
-    return exc.status_code in (401, 403)
+    """Only a 401 means the key itself is wrong. 403 is deliberately excluded: OpenRouter
+    uses it for moderation-flagged prompts and OpenAI for region blocks, and telling
+    the player to re-paste a working key would be the wrong advice."""
+    return exc.status_code == 401
 
 
 def build_chat_service(

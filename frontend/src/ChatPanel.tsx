@@ -59,12 +59,24 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
   const [draftProvider, setDraftProvider] = useState(llmKey?.provider ?? "");
   const [draftKey, setDraftKey] = useState("");
 
+  // Fetched whenever the form is open and the list is still empty, so a failed
+  // first load recovers on the next open instead of leaving "Loading…" forever.
   useEffect(() => {
+    if (!showKeyForm || providers.length > 0) return;
+    let cancelled = false;
     fetchChatProviders().then((list) => {
+      if (cancelled || list.length === 0) return;
       setProviders(list);
-      setDraftProvider((cur) => cur || list[0]?.id || "");
+      // A stored provider the server no longer offers must not stay selected, or
+      // every save resends it and the form can never get out of "rejected".
+      setDraftProvider((cur) =>
+        list.some((p) => p.id === cur) ? cur : list[0].id
+      );
     });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [showKeyForm, providers.length]);
 
   const providerLabel = (id: string) =>
     providers.find((p) => p.id === id)?.label ?? id;
@@ -73,6 +85,12 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
     e.preventDefault();
     const apiKey = draftKey.trim();
     if (!draftProvider || !apiKey) return;
+    // Header values must be ISO-8859-1; a smart quote copied from a doc would make
+    // fetch() throw later with no useful message, so catch it here.
+    if (/[^ -~]/.test(apiKey)) {
+      setError("That key has characters an API key can't contain — paste it again.");
+      return;
+    }
     const key = { provider: draftProvider, apiKey };
     saveLlmKey(key);
     setLlmKey(key);
