@@ -8,19 +8,38 @@
       content="Browse TF2 cosmetics by class, try on a loadout, catch equip conflicts, and get live backpack.tf pricing."
     />
     <meta name="theme-color" content="#e8dcc0" />
+    <link rel="canonical" href="https://tf2.yusufaf.dev/" />
     <meta property="og:title" content="Mann Co. Loadout Bench" />
     <meta
       property="og:description"
       content="Try it on before you trade for it — browse, equip, and price-check TF2 cosmetic loadouts."
     />
     <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:url" content="https://tf2.yusufaf.dev/" />
+    <meta property="og:site_name" content="Mann Co. Loadout Bench" />
+    <meta property="og:image" content="https://tf2.yusufaf.dev/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Mann Co. Loadout Bench — try it on before you trade for it."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Mann Co. Loadout Bench" />
     <meta
       name="twitter:description"
       content="Try it on before you trade for it — browse, equip, and price-check TF2 cosmetic loadouts."
     />
+    <meta name="twitter:image" content="https://tf2.yusufaf.dev/og-image.png" />
+    <meta
+      name="twitter:image:alt"
+      content="Mann Co. Loadout Bench — try it on before you trade for it."
+    />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <!-- Umami analytics — self-hosted, cookieless. See C:\Projects\umami-flyio. -->
     <script defer src="https://analytics.yusufaf.dev/s.js" data-website-id="274397a5-52cf-4b73-880f-ccd2eeba305a"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -33,6 +52,34 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <div
+        style="
+          max-width: 720px;
+          margin: 64px auto;
+          padding: 32px;
+          background: #e8dcc0;
+          color: #2b2620;
+          font-family: Inter, system-ui, sans-serif;
+          border: 2px solid #2b2620;
+        "
+      >
+        <h1 style="font-family: Oswald, sans-serif; letter-spacing: 0.02em">
+          Mann Co. Loadout Bench
+        </h1>
+        <p>
+          Browse TF2 cosmetics by class, try on a loadout, catch equip conflicts,
+          and get live backpack.tf pricing — try it on before you trade for it.
+        </p>
+        <p>
+          This app needs JavaScript. Enable it to open the bench, or check the
+          project at
+          <a href="https://github.com/yusufaf/tf2-loadout-assistant"
+            >github.com/yusufaf/tf2-loadout-assistant</a
+          >.
+        </p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -181,4 +181,6 @@ In-universe Mann Co. register in labels and status copy: "Try it on before you t
 - No dark mode.
 - No visual regression test — the frontend test suite (`pnpm test`) covers only pure logic modules (`filters.ts`, `conflicts.ts`); there is no DOM environment. Visual changes must be checked with real screenshots.
 - Item-quality colors are reserved but not wired to any data.
-- Favicon and social preview metadata are minimal — see `frontend/index.html`.
+- Social preview baseline is done (static `og:image` card, manifest, favicon
+  PNG/ICO, `robots.txt` — see `frontend/index.html`), but per-route share cards
+  and the sitemap are still open (tracked separately).
