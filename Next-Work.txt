@@ -19,7 +19,8 @@ warning line above "Equip these" (still enabled -- equipping replaces the tray, 
 already stamps its own clashes). filters.ts gained clashingIds(), shared by App.tsx
 and ChatPanel.tsx. 107 pytest (+7), 33 vitest (+2), tsc clean, vite build clean.
 
-Still open, no code yet:
-- prices.json has no CACHE_VERSION guard (equip.json does). Low risk today since the
-  shape only grew a derived field, but worth adding before the next pricing schema
-  change.
+Done (2026-10-08): prices.json now has a version guard like equip.json. PricingService
+.save_cache writes {"version": PRICES_CACHE_VERSION, "prices": {...}} and from_cache
+raises catalog.StaleCacheError on any other version; the old bare {defindex: price}
+file reads as v1 and is refused. Regenerate with `uv run pytest --live` before
+`fly deploy` (the image bakes in the local .cache/).

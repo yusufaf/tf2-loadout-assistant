@@ -10,10 +10,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from tf2_loadout.catalog import StaleCacheError
 from tf2_loadout.models import Price
 
 UNIQUE_QUALITY = "6"
 PRICES_CACHE = "prices.json"
+
+# Bump whenever prices.json changes shape. v1 was a bare {defindex: price} map with no
+# version at all; v2 wraps it as {"version": 2, "prices": {...}}. As with equip.json, an
+# out-of-date file must fail loudly rather than load as a different shape's idea of data.
+PRICES_CACHE_VERSION = 2
 
 # Mann Co. Supply Crate Key -- always metal-denominated, so it anchors the keys->ref
 # exchange rate used by ref_value below.
@@ -94,10 +100,18 @@ class PricingService:
     @classmethod
     def from_cache(cls, cache_dir: str | Path) -> "PricingService":
         raw = json.loads((Path(cache_dir) / PRICES_CACHE).read_text(encoding="utf-8"))
+        # A v1 file has no "version" key (its keys are all defindexes), so the default
+        # is what identifies it.
+        version = raw.get("version", 1)
+        if version != PRICES_CACHE_VERSION:
+            raise StaleCacheError(
+                f"prices cache is v{version}, expected v{PRICES_CACHE_VERSION} — "
+                "rebuild it with `uv run pytest --live`"
+            )
         return cls(
             {
                 int(di): Price(**p)
-                for di, p in raw.items()
+                for di, p in raw["prices"].items()
                 if isinstance(p.get("value"), (int, float))
             }
         )
@@ -117,4 +131,5 @@ class PricingService:
             }
             for di, p in self._prices.items()
         }
-        (cache_dir / PRICES_CACHE).write_text(json.dumps(raw), encoding="utf-8")
+        envelope = {"version": PRICES_CACHE_VERSION, "prices": raw}
+        (cache_dir / PRICES_CACHE).write_text(json.dumps(envelope), encoding="utf-8")

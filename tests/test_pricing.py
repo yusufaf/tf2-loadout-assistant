@@ -5,8 +5,19 @@ list of price entries. For v1 we surface the base price (Unique / Tradable / Cra
 keyed by defindex so it can be joined to a Cosmetic.
 """
 
+import json
+
+import pytest
+
+from tf2_loadout.catalog import StaleCacheError
 from tf2_loadout.models import Price
-from tf2_loadout.pricing import KEY_DEFINDEX, PricingService, parse_prices
+from tf2_loadout.pricing import (
+    KEY_DEFINDEX,
+    PRICES_CACHE,
+    PRICES_CACHE_VERSION,
+    PricingService,
+    parse_prices,
+)
 
 RESPONSE = {
     "response": {
@@ -117,3 +128,53 @@ class TestRefValue:
         pricing = self.make({378: Price(currency="metal", value=1.55)})
         assert pricing.ref_value_for(378) == 1.55
         assert pricing.ref_value_for(999999) is None
+
+
+def _priced() -> PricingService:
+    return PricingService(
+        {
+            378: Price("metal", 2.5, 3.0, 1700000000),
+            5021: Price("metal", 60.0, None, 1700000001),
+        }
+    )
+
+
+def test_cache_round_trip_preserves_prices(tmp_path):
+    _priced().save_cache(tmp_path)
+
+    loaded = PricingService.from_cache(tmp_path)
+
+    assert loaded.get(378) == Price("metal", 2.5, 3.0, 1700000000)
+    assert loaded.get(5021) == Price("metal", 60.0, None, 1700000001)
+    assert len(loaded) == 2
+
+
+def test_save_cache_stamps_the_current_version(tmp_path):
+    _priced().save_cache(tmp_path)
+
+    raw = json.loads((tmp_path / PRICES_CACHE).read_text(encoding="utf-8"))
+
+    assert raw["version"] == PRICES_CACHE_VERSION
+
+
+def test_from_cache_rejects_a_cache_written_before_versioning(tmp_path):
+    # The pre-versioning shape: a bare {defindex: price} map with no envelope.
+    legacy = {"378": {"currency": "metal", "value": 2.5, "value_high": 3.0, "last_update": 1}}
+    (tmp_path / PRICES_CACHE).write_text(json.dumps(legacy), encoding="utf-8")
+
+    with pytest.raises(StaleCacheError) as excinfo:
+        PricingService.from_cache(tmp_path)
+
+    # There is no refresh script, so the message has to say how to fix it.
+    assert "pytest --live" in str(excinfo.value)
+    assert str(PRICES_CACHE_VERSION) in str(excinfo.value)
+
+
+def test_from_cache_rejects_a_cache_from_a_newer_version(tmp_path):
+    # A rolled-back deploy reading a cache the newer code wrote must fail loudly too,
+    # not misread a shape it doesn't know.
+    newer = {"version": PRICES_CACHE_VERSION + 1, "prices": {}}
+    (tmp_path / PRICES_CACHE).write_text(json.dumps(newer), encoding="utf-8")
+
+    with pytest.raises(StaleCacheError):
+        PricingService.from_cache(tmp_path)
