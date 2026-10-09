@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 
 from tf2_loadout.schema_client import SchemaClient
-from tf2_loadout.catalog import CatalogService, save_catalog_cache
+from tf2_loadout.catalog import (
+    ALL_CLASSES,
+    MEDAL_TYPES,
+    CatalogService,
+    save_catalog_cache,
+)
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache"
 
@@ -31,6 +36,16 @@ async def test_builds_real_catalog_and_caches():
     # Two same-class hats must be flagged as conflicting (both occupy "hat").
     hats = [c for c in spy_hats if "hat" in c.equip_regions][:2]
     assert len(catalog.conflicts(hats)) == 1
+
+    # The medal predicate still matches real data (a Valve rename would flood every
+    # class with medals), and none of them reach the catalog.
+    medal_ids = {r["defindex"] for r in schema_items if r.get("item_type_name") in MEDAL_TYPES}
+    assert len(medal_ids) > 1000
+    assert not any(catalog.get(d) for d in medal_ids)
+
+    # Towering Pillar of Hats is an all-class item: every class lists it.
+    for cls in ALL_CLASSES:
+        assert catalog.get(135) in catalog.for_class(cls)
 
     save_catalog_cache(schema_items, items_game, CACHE_DIR)
     assert (CACHE_DIR / "schema_items.json").exists()
