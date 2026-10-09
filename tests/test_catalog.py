@@ -5,7 +5,7 @@ item. We keep only cosmetics (items that occupy an equip region) and map each in
 ``Cosmetic``.
 """
 
-from tf2_loadout.catalog import parse_schema_items, merge_catalog
+from tf2_loadout.catalog import ALL_CLASSES, merge_catalog, parse_schema_items
 from tf2_loadout.models import ItemAttrs
 
 
@@ -171,3 +171,78 @@ def test_merge_defaults_attrs_for_items_with_none():
     assert cosmetic.paintable is False
     assert cosmetic.holiday_restriction is None
     assert cosmetic.styles == ()
+
+
+# --- all-class items and medals --------------------------------------------------
+# Valve omits ``used_by_classes`` for items every class can wear, and ships thousands
+# of per-event participation medals as classless wearables.
+SCHEMA_ALL_CLASS_HAT = {
+    "defindex": 135,
+    "item_class": "tf_wearable",
+    "item_type_name": "Hat",
+    "item_name": "Towering Pillar of Hats",
+}
+SCHEMA_TOURNAMENT_MEDAL = {
+    "defindex": 8000,
+    "item_class": "tf_wearable",
+    "item_type_name": "Tournament Medal",
+    "item_name": "ETF2L Highlander Participant",
+}
+SCHEMA_COMMUNITY_MEDAL = {
+    "defindex": 9000,
+    "item_class": "tf_wearable",
+    "item_type_name": "Community Medal",
+    "item_name": "Community Medal",
+}
+SCHEMA_DUELING_BADGE = {
+    "defindex": 242,
+    "item_class": "tf_wearable",
+    "item_type_name": "Badge",
+    "item_name": "Bronze Dueling Badge",
+}
+SCHEMA_NOTICE = {
+    "defindex": 122,
+    "item_class": "tf_wearable",
+    "item_type_name": "CheatDetector",
+    "item_name": "Your account has been flagged",
+    "used_by_classes": [],
+}
+
+
+def test_all_classes_is_the_nine_classes_in_menu_order():
+    assert ALL_CLASSES == (
+        "Scout", "Soldier", "Pyro", "Demoman", "Heavy",
+        "Engineer", "Medic", "Sniper", "Spy",
+    )  # fmt: skip
+
+
+def test_merge_treats_missing_used_by_classes_as_all_nine_classes():
+    [cosmetic] = merge_catalog([SCHEMA_ALL_CLASS_HAT], {135: frozenset({"hat"})})
+
+    assert cosmetic.used_by_classes == ALL_CLASSES
+
+
+def test_merge_treats_null_used_by_classes_as_all_nine_classes():
+    raw = {**SCHEMA_ALL_CLASS_HAT, "used_by_classes": None}
+
+    [cosmetic] = merge_catalog([raw], {135: frozenset({"hat"})})
+
+    assert cosmetic.used_by_classes == ALL_CLASSES
+
+
+def test_merge_keeps_an_explicit_empty_class_list_empty():
+    [cosmetic] = merge_catalog([SCHEMA_NOTICE], {122: frozenset({"hat"})})
+
+    assert cosmetic.used_by_classes == ()
+
+
+def test_merge_excludes_tournament_and_community_medals():
+    regions = {8000: frozenset({"medal"}), 9000: frozenset({"medal"})}
+
+    assert merge_catalog([SCHEMA_TOURNAMENT_MEDAL, SCHEMA_COMMUNITY_MEDAL], regions) == []
+
+
+def test_merge_keeps_medal_region_badges():
+    [cosmetic] = merge_catalog([SCHEMA_DUELING_BADGE], {242: frozenset({"medal"})})
+
+    assert cosmetic.used_by_classes == ALL_CLASSES

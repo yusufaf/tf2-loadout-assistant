@@ -10,6 +10,7 @@ import pytest
 
 from tf2_loadout.models import Cosmetic
 from tf2_loadout.catalog import (
+    ALL_CLASSES,
     CACHE_VERSION,
     CatalogService,
     StaleCacheError,
@@ -127,3 +128,37 @@ def test_load_defindex_names_covers_every_raw_item_not_just_cosmetics(tmp_path):
 
     assert names[116] == "The Modest Pile of Hat"
     assert names[13] == "Scattergun"
+
+
+def test_from_cache_lists_all_class_items_under_every_class_and_drops_medals(tmp_path):
+    items_game = {
+        "equip_conflicts": {},
+        "prefabs": {},
+        "items": {
+            "135": {"name": "Towering Pillar of Hats", "equip_region": "hat"},
+            "8000": {"name": "Tournament Medal", "equip_region": "medal"},
+        },
+    }
+    # Valve sends neither item with ``used_by_classes``.
+    schema_items = [
+        {
+            "defindex": 135,
+            "item_class": "tf_wearable",
+            "item_type_name": "Hat",
+            "item_name": "Towering Pillar of Hats",
+        },
+        {
+            "defindex": 8000,
+            "item_class": "tf_wearable",
+            "item_type_name": "Tournament Medal",
+            "item_name": "ETF2L Highlander Participant",
+        },
+    ]
+    save_catalog_cache(schema_items, items_game, tmp_path)
+
+    catalog = CatalogService.from_cache(tmp_path)
+
+    for cls in ALL_CLASSES:
+        assert 135 in {c.defindex for c in catalog.for_class(cls)}
+    assert catalog.get(8000) is None
+    assert len(catalog) == 1

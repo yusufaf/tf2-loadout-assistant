@@ -1,7 +1,8 @@
 """TF2 cosmetic catalog: parse the Valve item schema into ``Cosmetic`` objects.
 
 Source: Steam ``IEconItems_440/GetSchemaItems``. Each raw item is a dict; we keep the
-ones that occupy an equip region (cosmetics) and drop weapons/tools.
+ones that occupy an equip region (cosmetics) and drop weapons/tools. Tournament and
+community medals are dropped too, and a missing ``used_by_classes`` means all nine classes.
 """
 
 from __future__ import annotations
@@ -16,6 +17,24 @@ from tf2_loadout.items_game import (
     resolve_item_attrs,
 )
 from tf2_loadout.models import Cosmetic, ItemAttrs
+
+# Same order as the class menu (and the frontend's CLASSES).
+ALL_CLASSES: tuple[str, ...] = (
+    "Scout",
+    "Soldier",
+    "Pyro",
+    "Demoman",
+    "Heavy",
+    "Engineer",
+    "Medic",
+    "Sniper",
+    "Spy",
+)
+
+# Thousands of per-event participation medals (~7.6k of ~9.5k wearables). Keyed on the
+# type name, not the ``medal`` equip region: real badges and pins (Dueling Badges,
+# Polycount Pin) share that region and are worth keeping.
+MEDAL_TYPES = frozenset({"Tournament Medal", "Community Medal"})
 
 
 def _equip_regions(raw: dict) -> frozenset[str]:
@@ -48,6 +67,18 @@ def parse_schema_items(raw_items: list[dict]) -> list[Cosmetic]:
 _NO_ATTRS = ItemAttrs()
 
 
+def _used_by_classes(raw: dict) -> tuple[str, ...]:
+    """Classes that can wear a schema item.
+
+    Valve omits ``used_by_classes`` entirely for items every class can wear, so an
+    absent (or null) value means all nine. An explicit empty list stays empty.
+    """
+    classes = raw.get("used_by_classes")
+    if classes is None:
+        return ALL_CLASSES
+    return tuple(classes)
+
+
 def _styles(raw: dict) -> tuple[str, ...]:
     """Style variant names for a schema item, in declaration order.
 
@@ -75,7 +106,8 @@ def merge_catalog(
 
     A cosmetic must be a wearable (``item_class`` starting ``tf_wearable``) and have
     resolved equip regions; this excludes weapons that happen to carry a region
-    (e.g. mediguns) and wearables whose regions could not be resolved.
+    (e.g. mediguns) and wearables whose regions could not be resolved. Tournament and
+    community medals are skipped; a missing ``used_by_classes`` means all nine classes.
 
     ``attrs`` is sparse: only items with a non-default attribute appear in it.
     """
@@ -83,6 +115,8 @@ def merge_catalog(
     cosmetics: list[Cosmetic] = []
     for raw in schema_items:
         if not str(raw.get("item_class", "")).startswith("tf_wearable"):
+            continue
+        if raw.get("item_type_name") in MEDAL_TYPES:
             continue
         regions = equip_regions.get(raw["defindex"])
         if not regions:
@@ -93,7 +127,7 @@ def merge_catalog(
                 defindex=raw["defindex"],
                 name=raw.get("item_name") or raw["name"],
                 equip_regions=regions,
-                used_by_classes=tuple(raw.get("used_by_classes", ())),
+                used_by_classes=_used_by_classes(raw),
                 item_slot=raw.get("item_slot"),
                 image_url=raw.get("image_url"),
                 paintable=item_attrs.paintable,
