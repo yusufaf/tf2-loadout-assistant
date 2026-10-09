@@ -17,8 +17,9 @@ UNIQUE_QUALITY = "6"
 PRICES_CACHE = "prices.json"
 
 # Bump whenever prices.json changes shape. v1 was a bare {defindex: price} map with no
-# version at all; v2 wraps it as {"version": 2, "prices": {...}}. As with equip.json, an
-# out-of-date file must fail loudly rather than load as a different shape's idea of data.
+# version at all; v2 wraps it as {"version": 2, "prices": {...}}. As with equip.json, a
+# file we can't interpret must fail loudly rather than load as another shape's idea of
+# data -- but v1 is fully understood, so it still reads (see from_cache).
 PRICES_CACHE_VERSION = 2
 
 # Mann Co. Supply Crate Key -- always metal-denominated, so it anchors the keys->ref
@@ -103,7 +104,14 @@ class PricingService:
         # A v1 file has no "version" key (its keys are all defindexes), so the default
         # is what identifies it.
         version = raw.get("version", 1)
-        if version != PRICES_CACHE_VERSION:
+        if version == 1:
+            # Unlike equip.json's v1, nothing is missing here -- same data, no envelope
+            # -- so refusing it would only turn a valid cache into a boot failure (the
+            # image bakes in whatever .cache/ was on disk at build time).
+            prices = raw
+        elif version == PRICES_CACHE_VERSION:
+            prices = raw["prices"]
+        else:
             raise StaleCacheError(
                 f"prices cache is v{version}, expected v{PRICES_CACHE_VERSION} — "
                 "rebuild it with `uv run pytest --live`"
@@ -111,7 +119,7 @@ class PricingService:
         return cls(
             {
                 int(di): Price(**p)
-                for di, p in raw["prices"].items()
+                for di, p in prices.items()
                 if isinstance(p.get("value"), (int, float))
             }
         )

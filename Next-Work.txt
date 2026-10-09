@@ -21,6 +21,6 @@ and ChatPanel.tsx. 107 pytest (+7), 33 vitest (+2), tsc clean, vite build clean.
 
 Done (2026-10-08): prices.json now has a version guard like equip.json. PricingService
 .save_cache writes {"version": PRICES_CACHE_VERSION, "prices": {...}} and from_cache
-raises catalog.StaleCacheError on any other version; the old bare {defindex: price}
-file reads as v1 and is refused. Regenerate with `uv run pytest --live` before
-`fly deploy` (the image bakes in the local .cache/).
+raises catalog.StaleCacheError on a version it doesn't know. The old bare
+{defindex: price} file still reads as v1 (nothing is missing from it) and is upgraded
+on the next save, so existing local caches and the deploy image keep working.
