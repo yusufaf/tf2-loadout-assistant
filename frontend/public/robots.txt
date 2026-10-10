@@ -1,2 +1,9 @@
 User-agent: *
-Allow: /
+Disallow: /auth
+Disallow: /chat
+Disallow: /cosmetics
+Disallow: /equip-conflicts
+Disallow: /healthz
+Disallow: /loadout
+Disallow: /lore
+Disallow: /me
