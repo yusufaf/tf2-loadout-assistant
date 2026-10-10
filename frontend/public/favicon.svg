@@ -7,7 +7,8 @@
       <ellipse cx="32" cy="26.5" rx="15" ry="3.5"/>
     </g>
   </defs>
-  <rect x="1.5" y="1.5" width="61" height="61" rx="10" fill="#e8dcc0" stroke="#2b2620" stroke-width="3"/>
+  <rect width="64" height="64" fill="#e8dcc0"/>
+  <rect x="1.5" y="1.5" width="61" height="61" fill="none" stroke="#2b2620" stroke-width="3"/>
   <g transform="translate(0 -3)">
   <g stroke="#2b2620" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
     <path d="M12 33H40L52 27H24Z" fill="#e5c16e"/>

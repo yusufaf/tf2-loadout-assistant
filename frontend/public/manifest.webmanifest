@@ -3,7 +3,7 @@
   "short_name": "Loadout Bench",
   "description": "Browse TF2 cosmetics by class, try on a loadout, catch equip conflicts, and get live backpack.tf pricing.",
   "start_url": "/",
-  "display": "standalone",
+  "display": "browser",
   "background_color": "#e8dcc0",
   "theme_color": "#e8dcc0",
   "icons": [
