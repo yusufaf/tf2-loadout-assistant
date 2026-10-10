@@ -1,5 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect x="1" y="1" width="30" height="30" fill="#e8dcc0" stroke="#2b2620" stroke-width="2"/>
-  <rect x="2" y="2" width="28" height="5" fill="#cf9b45"/>
-  <circle cx="16" cy="19" r="7" fill="#b8383b" stroke="#2b2620" stroke-width="2"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <path id="crown" d="M22 26C22 10.5 42 10.5 42 26Z"/>
+    <clipPath id="crown-clip"><use href="#crown"/></clipPath>
+    <g id="hat">
+      <use href="#crown"/>
+      <ellipse cx="32" cy="26.5" rx="15" ry="3.5"/>
+    </g>
+  </defs>
+  <rect width="64" height="64" fill="#e8dcc0"/>
+  <rect x="1.5" y="1.5" width="61" height="61" fill="none" stroke="#2b2620" stroke-width="3"/>
+  <g transform="translate(0 -3)">
+  <g stroke="#2b2620" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M12 33H40L52 27H24Z" fill="#e5c16e"/>
+    <path d="M40 33L52 27V52L40 58Z" fill="#cf9b45"/>
+    <rect x="12" y="33" width="28" height="25" fill="#cf9b45"/>
+    <path d="M17 38L35 53M35 38L17 53" stroke="#b8383b" stroke-width="4"/>
+  </g>
+  <use href="#hat" fill="#e8dcc0" stroke="#e8dcc0" stroke-width="3" stroke-linejoin="round"/>
+  <use href="#hat" fill="#2b2620"/>
+  <rect x="20" y="21" width="24" height="4" fill="#b8383b" clip-path="url(#crown-clip)"/>
+  </g>
 </svg>
