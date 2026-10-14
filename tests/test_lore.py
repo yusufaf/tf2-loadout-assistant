@@ -4,9 +4,25 @@ It depends only on an async ``client.query(**params)`` (the reused WikiClient), 
 drive it with a stub. Results are cached on disk to spare the rate-limited wiki.
 """
 
-import pytest
+import os
+import time
 
-from tf2_loadout.lore import LoreService, ItemLore
+import pytest
+from tf2_wiki_mcp.client import WikiError
+
+from tf2_loadout.lore import MISS_TTL_SECONDS, LoreService, ItemLore
+
+
+class RaisingClient:
+    """A client whose every query fails, as WikiClient does for an API error."""
+
+    def __init__(self, exc: Exception):
+        self.exc = exc
+        self.calls = 0
+
+    async def query(self, **params):
+        self.calls += 1
+        raise self.exc
 
 
 class StubClient:
@@ -32,7 +48,8 @@ PAGE = {
         ),
     }
 }
-# action=parse on a missing page yields no usable wikitext.
+# A page that exists but has no usable lead (e.g. a stub). A page that doesn't exist at
+# all raises WikiError("missingtitle: ...") instead -- see RaisingClient.
 MISSING = {"parse": {"title": "Nope", "wikitext": ""}}
 
 
@@ -83,3 +100,62 @@ async def test_corrupt_cache_file_is_treated_as_a_miss(tmp_path, junk):
     assert client.calls == 2  # refetched instead of raising
     assert await lore.get_lore("Team Captain") == first
     assert client.calls == 2  # and the rewritten file is a good cache again
+
+
+def _lore_files(tmp_path):
+    return list((tmp_path / "lore").glob("*.json"))
+
+
+async def test_caches_a_miss_and_skips_the_wiki_next_time(tmp_path):
+    client = StubClient(MISSING)
+    lore = LoreService(client, cache_dir=tmp_path)
+
+    assert await lore.get_lore("Nope") is None
+    assert await lore.get_lore("Nope") is None
+
+    assert client.calls == 1
+
+
+async def test_a_cached_miss_expires(tmp_path):
+    client = StubClient(MISSING)
+    lore = LoreService(client, cache_dir=tmp_path)
+    await lore.get_lore("Nope")
+    old = time.time() - MISS_TTL_SECONDS - 60
+    for p in _lore_files(tmp_path):
+        os.utime(p, (old, old))
+
+    assert await lore.get_lore("Nope") is None
+
+    assert client.calls == 2  # a newly released item's page may exist by now
+
+
+@pytest.mark.parametrize("code", ["missingtitle", "invalidtitle"])
+async def test_a_missing_wiki_page_is_cached(tmp_path, code):
+    # This is how a real miss arrives: the API errors rather than returning empty text.
+    client = RaisingClient(WikiError(f"{code}: The page you specified doesn't exist."))
+    lore = LoreService(client, cache_dir=tmp_path)
+
+    assert await lore.get_lore("Zzz Nope") is None
+    assert await lore.get_lore("Zzz Nope") is None
+
+    assert client.calls == 1
+    assert len(_lore_files(tmp_path)) == 1
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        RuntimeError("boom"),
+        WikiError("maxlag: Waiting for a database server"),
+        WikiError("MediaWiki API repeatedly asked us to back off"),
+    ],
+)
+async def test_a_wiki_failure_is_not_cached(tmp_path, exc):
+    client = RaisingClient(exc)
+    lore = LoreService(client, cache_dir=tmp_path)
+
+    assert await lore.get_lore("Team Captain") is None
+    assert await lore.get_lore("Team Captain") is None
+
+    assert client.calls == 2  # an outage must not be pinned for a day
+    assert _lore_files(tmp_path) == []

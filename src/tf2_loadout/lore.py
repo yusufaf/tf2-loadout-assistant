@@ -1,16 +1,29 @@
 """Item lore from the TF2 wiki, reusing tf2-wiki-mcp's WikiClient.
 
 Provides the lead-section description for a cosmetic, which feeds style reasoning. The
-wiki is rate-limited, so results are cached on disk.
+wiki is rate-limited, so results are cached on disk -- misses included (for a day), so
+an unknown item doesn't hit the wiki on every request. Only "no such page" and "page
+has no lead" count as misses; a transient failure is never cached.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
+
+from tf2_wiki_mcp.client import WikiError
+
+# Pages for newly released items appear on the wiki later, so a negative entry must
+# expire rather than hide them forever.
+MISS_TTL_SECONDS = 24 * 3600
+
+# MediaWiki error codes meaning "no page by this name", as opposed to an outage or
+# back-off. WikiClient only exposes the code as the "<code>: <info>" message prefix.
+_NO_PAGE_CODES = frozenset({"missingtitle", "invalidtitle"})
 
 
 @dataclass(frozen=True)
@@ -28,6 +41,10 @@ def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "item"
 
 
+def _is_missing_page(exc: Exception) -> bool:
+    return isinstance(exc, WikiError) and str(exc).partition(":")[0] in _NO_PAGE_CODES
+
+
 class LoreService:
     def __init__(self, client: _Queryable, cache_dir: str | Path | None = None):
         self._client = client
@@ -43,7 +60,7 @@ class LoreService:
         if cache_file:
             cached = self._read_cache(cache_file)
             if cached is not None:
-                return cached
+                return cached if cached.summary else None
 
         # The TF2 wiki lacks the TextExtracts extension and its rendered infobox
         # duplicates flavor text, so we take the lead sentence from the raw wikitext.
@@ -51,24 +68,28 @@ class LoreService:
             data = await self._client.query(
                 action="parse", page=item_name, prop="wikitext", redirects=1
             )
-        except Exception:
-            return None
+        except Exception as exc:
+            if not _is_missing_page(exc):
+                return None  # transient; deliberately not cached
+            data = {}
         parse = data.get("parse", {})
         summary = _lead_from_wikitext(parse.get("wikitext") or "")
-        if not summary:
-            return None
 
         lore = ItemLore(name=item_name, title=parse.get("title"), summary=summary)
         if cache_file:
             self._write_cache(cache_file, lore)
-        return lore
+        return lore if summary else None
 
     def _read_cache(self, path: Path) -> ItemLore | None:
         try:
-            return ItemLore(**json.loads(path.read_text(encoding="utf-8")))
+            lore = ItemLore(**json.loads(path.read_text(encoding="utf-8")))
+            age = time.time() - path.stat().st_mtime
         except (OSError, ValueError, TypeError):
             # Missing, unreadable, truncated or wrong-shaped: all just mean "fetch again".
             return None
+        if lore.summary is None and age > MISS_TTL_SECONDS:
+            return None
+        return lore
 
     def _write_cache(self, path: Path, lore: ItemLore) -> None:
         try:
