@@ -435,11 +435,18 @@ def _rejecting_client() -> TestClient:
     )
 
 
+# (exception factory, whether its text may appear in our own log). A provider body
+# can echo the player's key, so for ModelHTTPError only the status is logged.
 _UPSTREAM_ERRORS = [
-    lambda llm: ModelHTTPError(
-        status_code=500, model_name="m", body={"error": "SECRET-INTERNAL"}
+    (
+        lambda llm: ModelHTTPError(
+            status_code=400,
+            model_name="m",
+            body={"error": f"SECRET-INTERNAL bad x-api-key {llm.api_key}"},
+        ),
+        False,
     ),
-    lambda llm: RuntimeError("SECRET-INTERNAL"),
+    (lambda llm: RuntimeError("SECRET-INTERNAL"), True),
 ]
 
 
@@ -455,8 +462,8 @@ def test_chat_maps_a_rejected_key_to_401(caplog):
     assert "chat turn failed" not in caplog.text
 
 
-@pytest.mark.parametrize("make_exc", _UPSTREAM_ERRORS)
-def test_chat_hides_upstream_error_text(make_exc, caplog):
+@pytest.mark.parametrize("make_exc, text_logged", _UPSTREAM_ERRORS)
+def test_chat_hides_upstream_error_text(make_exc, text_logged, caplog):
     r = _failing_client(make_exc).post(
         "/chat", json={"message": "hi"}, headers=LLM_HEADERS
     )
@@ -464,13 +471,14 @@ def test_chat_hides_upstream_error_text(make_exc, caplog):
     assert r.json()["detail"].startswith("model error")
     assert "SECRET" not in r.text
     assert "sk-test" not in r.text
-    # Hidden from the player, but still readable by us.
-    assert "SECRET-INTERNAL" in caplog.text
+    # Hidden from the player, but the failure is still logged for us.
+    assert "chat turn failed" in caplog.text
+    assert ("SECRET-INTERNAL" in caplog.text) == text_logged
     assert "sk-test" not in caplog.text
 
 
-@pytest.mark.parametrize("make_exc", _UPSTREAM_ERRORS)
-def test_chat_stream_hides_upstream_error_text(make_exc, caplog):
+@pytest.mark.parametrize("make_exc, text_logged", _UPSTREAM_ERRORS)
+def test_chat_stream_hides_upstream_error_text(make_exc, text_logged, caplog):
     r = _failing_client(make_exc).post(
         "/chat/stream", json={"message": "hi"}, headers=LLM_HEADERS
     )
@@ -480,7 +488,8 @@ def test_chat_stream_hides_upstream_error_text(make_exc, caplog):
     assert lines[0]["kind"] == "error"
     assert "code" not in lines[0]
     assert "SECRET" not in r.text
-    assert "SECRET-INTERNAL" in caplog.text
+    assert "chat turn failed" in caplog.text
+    assert ("SECRET-INTERNAL" in caplog.text) == text_logged
     assert "sk-test" not in caplog.text
 
 

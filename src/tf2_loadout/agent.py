@@ -465,18 +465,25 @@ def turn_error(exc: Exception) -> dict:
     Never carries exception text: a provider's error body can echo request details,
     and an unexpected exception is ours to read in the logs, not the player's.
     A rejected key keeps its own ``code`` -- the one failure the player can fix --
-    and returns before the log call, since a 401 body may echo the key back.
+    and is not logged. A provider error is logged by status only, never its body.
     """
     if isinstance(exc, UsageLimitExceeded):
         return {"kind": "error", "detail": "the agent gave up mid-thought"}
     if isinstance(exc, ModelHTTPError) and is_rejected_key(exc):
         return {"kind": "error", "code": "bad_key", "detail": REJECTED_KEY}
-    logger.error("chat turn failed", exc_info=exc)
     if isinstance(exc, ModelHTTPError):
+        # Deliberately not exc_info: the message embeds the provider's body, and a 400 or
+        # 403 body can echo the submitted key just as a 401 can.
+        logger.error(
+            "chat turn failed: provider returned HTTP %s (model %s)",
+            exc.status_code,
+            exc.model_name,
+        )
         return {
             "kind": "error",
             "detail": f"model error: provider returned HTTP {exc.status_code}",
         }
+    logger.error("chat turn failed", exc_info=exc)
     return {"kind": "error", "detail": MODEL_ERROR}
 
 
