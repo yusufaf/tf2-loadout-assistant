@@ -12,6 +12,7 @@ to a formatter.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, replace
 
@@ -33,6 +34,8 @@ from tf2_loadout.config import (
 from tf2_loadout.lore import LoreService
 from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
 You are a Team Fortress 2 cosmetic loadout advisor. You help players assemble
@@ -396,7 +399,8 @@ class LoadoutAgentService:
         just leak half-built JSON.
 
         A provider rejecting the key is the one error the player can fix, so it gets
-        its own ``code`` rather than the generic model-error text.
+        its own ``code``. Every other failure goes through ``turn_error``, which keeps
+        exception text out of the event.
         """
         queue: asyncio.Queue[dict] = asyncio.Queue()
         done = object()
@@ -417,19 +421,8 @@ class LoadoutAgentService:
                     model=self._model_for(llm),
                 )
                 queue.put_nowait({"kind": "final", "result": result})
-            except UsageLimitExceeded:
-                queue.put_nowait(
-                    {"kind": "error", "detail": "the agent gave up mid-thought"}
-                )
-            except ModelHTTPError as exc:
-                if is_rejected_key(exc):
-                    queue.put_nowait(
-                        {"kind": "error", "code": "bad_key", "detail": REJECTED_KEY}
-                    )
-                else:
-                    queue.put_nowait({"kind": "error", "detail": f"model error: {exc}"})
             except Exception as exc:
-                queue.put_nowait({"kind": "error", "detail": f"model error: {exc}"})
+                queue.put_nowait(turn_error(exc))
             finally:
                 queue.put_nowait(done)  # type: ignore[arg-type]
 
@@ -461,6 +454,30 @@ def is_rejected_key(exc: ModelHTTPError) -> bool:
     uses it for moderation-flagged prompts and OpenAI for region blocks, and telling
     the player to re-paste a working key would be the wrong advice."""
     return exc.status_code == 401
+
+
+MODEL_ERROR = "model error: the advisor couldn't finish this turn"
+
+
+def turn_error(exc: Exception) -> dict:
+    """The client-safe ``error`` event for a failed turn.
+
+    Never carries exception text: a provider's error body can echo request details,
+    and an unexpected exception is ours to read in the logs, not the player's.
+    A rejected key keeps its own ``code`` -- the one failure the player can fix --
+    and returns before the log call, since a 401 body may echo the key back.
+    """
+    if isinstance(exc, UsageLimitExceeded):
+        return {"kind": "error", "detail": "the agent gave up mid-thought"}
+    if isinstance(exc, ModelHTTPError) and is_rejected_key(exc):
+        return {"kind": "error", "code": "bad_key", "detail": REJECTED_KEY}
+    logger.error("chat turn failed", exc_info=exc)
+    if isinstance(exc, ModelHTTPError):
+        return {
+            "kind": "error",
+            "detail": f"model error: provider returned HTTP {exc.status_code}",
+        }
+    return {"kind": "error", "detail": MODEL_ERROR}
 
 
 def build_chat_service(

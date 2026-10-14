@@ -16,7 +16,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
-from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_core import to_jsonable_python
 from starlette.datastructures import Headers
@@ -24,11 +23,10 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from tf2_loadout.agent import (
-    REJECTED_KEY,
     LoadoutAgentService,
     LoadoutDeps,
     build_chat_service,
-    is_rejected_key,
+    turn_error,
 )
 from tf2_loadout.auth import SteamAuthError, SteamAuthService
 from tf2_loadout.catalog import CatalogService, load_defindex_names
@@ -388,14 +386,10 @@ def create_app(
         owned = await _owned_for(request)
         try:
             result = await chat.reply(req.message, history, req.equipped, owned, llm)
-        except UsageLimitExceeded:
-            raise HTTPException(status_code=502, detail="the agent gave up mid-thought")
-        except ModelHTTPError as exc:
-            if is_rejected_key(exc):
-                raise HTTPException(status_code=401, detail=REJECTED_KEY)
-            raise HTTPException(status_code=502, detail=f"model error: {exc}")
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"model error: {exc}")
+            error = turn_error(exc)
+            status = 401 if error.get("code") == "bad_key" else 502
+            raise HTTPException(status_code=status, detail=error["detail"])
         suggested, conflicts = _validate_suggestions(
             result.output.suggested_defindexes
         )

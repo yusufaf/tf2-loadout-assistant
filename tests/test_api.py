@@ -7,6 +7,7 @@ Cosmetic responses join in the price when one exists.
 import asyncio
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
@@ -388,11 +389,11 @@ def test_chat_rejects_a_provider_outside_the_allowlist():
     assert r.json()["detail"] == "unknown llm provider"
 
 
-def _rejecting_client() -> TestClient:
-    """A client whose provider answers every turn with 401."""
+def _failing_client(make_exc) -> TestClient:
+    """A client whose model factory raises ``make_exc(llm)`` every turn."""
 
     def factory(llm):
-        raise ModelHTTPError(status_code=401, model_name="m", body={"error": "nope"})
+        raise make_exc(llm)
 
     catalog = CatalogService(
         [Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")]
@@ -406,14 +407,65 @@ def _rejecting_client() -> TestClient:
     return TestClient(create_app(catalog, pricing, None, chat))
 
 
-def test_chat_maps_a_rejected_key_to_401():
+def _rejecting_client() -> TestClient:
+    """A client whose provider answers every turn with 401, echoing the key as a real
+    provider's error body can."""
+    return _failing_client(
+        lambda llm: ModelHTTPError(
+            status_code=401,
+            model_name="m",
+            body={"error": f"invalid x-api-key {llm.api_key}"},
+        )
+    )
+
+
+_UPSTREAM_ERRORS = [
+    lambda llm: ModelHTTPError(
+        status_code=500, model_name="m", body={"error": "SECRET-INTERNAL"}
+    ),
+    lambda llm: RuntimeError("SECRET-INTERNAL"),
+]
+
+
+def test_chat_maps_a_rejected_key_to_401(caplog):
     r = _rejecting_client().post(
         "/chat", json={"message": "hi"}, headers=LLM_HEADERS
     )
     assert r.status_code == 401
     assert r.json()["detail"] == "provider rejected the API key"
-    # The key itself must never echo back.
+    # The key itself must never echo back, nor reach the server log.
     assert "sk-test" not in r.text
+    assert "sk-test" not in caplog.text
+    assert "chat turn failed" not in caplog.text
+
+
+@pytest.mark.parametrize("make_exc", _UPSTREAM_ERRORS)
+def test_chat_hides_upstream_error_text(make_exc, caplog):
+    r = _failing_client(make_exc).post(
+        "/chat", json={"message": "hi"}, headers=LLM_HEADERS
+    )
+    assert r.status_code == 502
+    assert r.json()["detail"].startswith("model error")
+    assert "SECRET" not in r.text
+    assert "sk-test" not in r.text
+    # Hidden from the player, but still readable by us.
+    assert "SECRET-INTERNAL" in caplog.text
+    assert "sk-test" not in caplog.text
+
+
+@pytest.mark.parametrize("make_exc", _UPSTREAM_ERRORS)
+def test_chat_stream_hides_upstream_error_text(make_exc, caplog):
+    r = _failing_client(make_exc).post(
+        "/chat/stream", json={"message": "hi"}, headers=LLM_HEADERS
+    )
+    assert r.status_code == 200
+    lines = _stream_lines(r)
+    assert len(lines) == 1
+    assert lines[0]["kind"] == "error"
+    assert "code" not in lines[0]
+    assert "SECRET" not in r.text
+    assert "SECRET-INTERNAL" in caplog.text
+    assert "sk-test" not in caplog.text
 
 
 def test_chat_stream_flags_a_rejected_key_in_band():
