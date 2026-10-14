@@ -60,6 +60,8 @@ uv run pytest --live     # also runs the tests that hit real APIs, and rebuilds 
 cd frontend && pnpm test # Vitest, covering the pure filter and conflict modules
 ```
 
+CI (`.github/workflows/ci.yml`) runs the default pytest suite plus the frontend's Vitest, oxlint and typecheck/build on every pull request and push to main; the `--live` tests never run there.
+
 Agent tests drive Pydantic AI's `TestModel` / `FunctionModel`, and a session fixture
 pins `ALLOW_MODEL_REQUESTS` to `False`, so no test can reach a provider by accident.
 

@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: tf2-loadout-assistant
+    steps:
+      # [tool.uv.sources] points tf2-wiki-mcp at ../tf2-wiki-mcp, so both repos
+      # have to be checked out side by side or `uv sync` can't resolve it.
+      - uses: actions/checkout@v7
+        with:
+          path: tf2-loadout-assistant
+      - uses: actions/checkout@v7
+        with:
+          repository: yusufaf/tf2-wiki-mcp
+          path: tf2-wiki-mcp
+      # setup-uv publishes no floating major tag since v8; pin the full version.
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: "3.12"
+          working-directory: tf2-loadout-assistant
+      - run: uv sync --locked
+      - run: uv run pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: frontend/package.json
+          cache: true
+          cache_dependency_path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm lint
+      # tsc -b && vite build: typechecks and confirms the bundle still builds.
+      - run: pnpm build
