@@ -8,6 +8,7 @@ has no lead" count as misses; a transient failure is never cached.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -41,6 +42,10 @@ def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "item"
 
 
+def _name_digest(name: str) -> str:
+    return hashlib.sha256(name.encode("utf-8")).hexdigest()[:12]
+
+
 def _is_missing_page(exc: Exception) -> bool:
     return isinstance(exc, WikiError) and str(exc).partition(":")[0] in _NO_PAGE_CODES
 
@@ -53,7 +58,9 @@ class LoreService:
     def _cache_file(self, name: str) -> Path | None:
         if self._cache_dir is None:
             return None
-        return self._cache_dir / "lore" / f"{_slug(name)}.json"
+        # The slug alone is lossy ("Hat!" and "Hat?" both become "hat"), so the digest
+        # of the exact name keeps it readable but unique.
+        return self._cache_dir / "lore" / f"{_slug(name)}-{_name_digest(name)}.json"
 
     async def get_lore(self, item_name: str) -> ItemLore | None:
         cache_file = self._cache_file(item_name)

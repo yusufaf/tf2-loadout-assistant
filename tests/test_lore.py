@@ -159,3 +159,34 @@ async def test_a_wiki_failure_is_not_cached(tmp_path, exc):
 
     assert client.calls == 2  # an outage must not be pinned for a day
     assert _lore_files(tmp_path) == []
+
+
+class _PerPageClient:
+    """Answers each page with its own distinct lead, counting queries."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def query(self, **params):
+        self.calls += 1
+        page = params["page"]
+        return {
+            "parse": {
+                "title": page,
+                "wikitext": f"'''{page}''' is a distinct cosmetic item used only in this test case.",
+            }
+        }
+
+
+async def test_names_that_slug_alike_get_separate_cache_entries(tmp_path):
+    client = _PerPageClient()
+    lore = LoreService(client, cache_dir=tmp_path)
+
+    a = await lore.get_lore("Hat!")
+    b = await lore.get_lore("Hat?")
+
+    assert a.summary != b.summary
+    assert client.calls == 2
+    assert await lore.get_lore("Hat!") == a
+    assert await lore.get_lore("Hat?") == b
+    assert client.calls == 2
