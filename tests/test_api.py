@@ -4,6 +4,7 @@ The app is built from a catalog + pricing service so tests can inject small fixt
 Cosmetic responses join in the price when one exists.
 """
 
+import asyncio
 import json
 
 from fastapi.testclient import TestClient
@@ -19,12 +20,13 @@ from tf2_loadout.models import Cosmetic, Price
 from tf2_loadout.catalog import CatalogService
 from tf2_loadout.lore import ItemLore, LoreService
 from tf2_loadout.pricing import PricingService
-from tf2_loadout.api import create_app
+from tf2_loadout.api import CanonicalHostRedirect, create_app
 from tf2_loadout.config import PROVIDERS
 
 # What the browser sends with every chat turn. The value is never checked here --
 # the stub factory below ignores it -- but its absence must be a 401.
 LLM_HEADERS = {"X-LLM-Provider": "anthropic", "X-LLM-API-Key": "sk-test"}
+PUBLIC_BASE_URL = "https://tf2.yusufaf.dev"
 
 
 def _service(model: Model, deps: LoadoutDeps) -> LoadoutAgentService:
@@ -43,7 +45,7 @@ class _StubWiki:
         }
 
 
-def _client() -> TestClient:
+def _client(public_base_url: str | None = None) -> TestClient:
     catalog = CatalogService(
         [
             Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1"),
@@ -53,7 +55,7 @@ def _client() -> TestClient:
     )
     pricing = PricingService({1: Price("metal", 5.0, 6.0)})
     lore = LoreService(_StubWiki())
-    return TestClient(create_app(catalog, pricing, lore))
+    return TestClient(create_app(catalog, pricing, lore, public_base_url=public_base_url))
 
 
 def test_healthz_reports_counts():
@@ -432,3 +434,90 @@ def test_chat_providers_lists_the_allowlist_even_without_a_service():
         providers = r.json()["providers"]
         assert [p["id"] for p in providers] == [spec.id for spec in PROVIDERS]
         assert all(p["label"] and p["model"] for p in providers)
+
+
+def _fly_client(base_url: str = "https://tf2-loadout-af.fly.dev") -> TestClient:
+    return TestClient(_client(public_base_url=PUBLIC_BASE_URL).app, base_url=base_url)
+
+
+def test_fly_hostname_redirects_to_the_custom_domain_keeping_path_and_query():
+    client = _fly_client()
+    r = client.get("/cosmetics?used_by=Spy&q=fedora", follow_redirects=False)
+    assert r.status_code == 301
+    assert r.headers["location"] == "https://tf2.yusufaf.dev/cosmetics?used_by=Spy&q=fedora"
+    r = client.get("/lore/a%3Fb", follow_redirects=False)
+    assert r.headers["location"] == "https://tf2.yusufaf.dev/lore/a%3Fb"
+    assert client.head("/", follow_redirects=False).status_code == 301
+
+
+def test_fly_hostname_redirects_non_get_with_308_so_method_and_body_survive():
+    r = _fly_client().post(
+        "/chat?source=share", json={"messages": []}, follow_redirects=False
+    )
+    assert r.status_code == 308
+    assert r.headers["location"] == "https://tf2.yusufaf.dev/chat?source=share"
+
+
+def test_fly_hostname_redirect_percent_encodes_raw_bytes_exactly_once():
+    # httpx escapes non-ASCII before sending, so hand the middleware the raw bytes a
+    # lenient server could pass through.
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    async def unreachable(scope, receive, send):
+        raise AssertionError("a redirected request reached the app")
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/lore/Über?",
+        "raw_path": "/lore/Über%3F".encode(),
+        "query_string": "q=ä&r=%20".encode(),
+        "headers": [(b"host", b"tf2-loadout-af.fly.dev")],
+    }
+    asyncio.run(CanonicalHostRedirect(unreachable, PUBLIC_BASE_URL)(scope, None, send))
+    assert sent[0]["status"] == 301
+    assert dict(sent[0]["headers"])[b"location"] == (
+        b"https://tf2.yusufaf.dev/lore/%C3%9Cber%3F?q=%C3%A4&r=%20"
+    )
+
+
+def test_fly_hostname_match_ignores_case_and_port():
+    r = _fly_client("http://testserver").get(
+        "/", headers={"host": "TF2-Loadout-AF.fly.dev:443"}, follow_redirects=False
+    )
+    assert r.status_code == 301
+    assert r.headers["location"] == "https://tf2.yusufaf.dev/"
+
+
+def test_canonical_and_internal_hosts_are_not_redirected():
+    client = _fly_client("http://testserver")
+    # Fly's health checker addresses the machine by its private IP, not a public name.
+    for host in ("tf2.yusufaf.dev", "172.19.0.2:8000", "tf2-loadout-af.internal"):
+        r = client.get("/healthz", headers={"host": host}, follow_redirects=False)
+        assert r.status_code == 200, host
+        r = client.get("/cosmetics", headers={"host": host}, follow_redirects=False)
+        assert r.status_code == 200, host
+
+
+def test_healthz_is_never_redirected():
+    client = _fly_client()
+    r = client.get("/healthz", follow_redirects=False)
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+    # The app's own answer to /healthz/ depends on whether frontend/dist is mounted (a
+    # 404, or the router's same-host slash redirect); either way it stays on this host.
+    r = client.get("/healthz/", follow_redirects=False)
+    assert not r.headers.get("location", "").startswith(PUBLIC_BASE_URL)
+
+
+def test_no_redirect_without_a_distinct_public_base_url():
+    # Unset (local dev, tests) or pointing at the Fly hostname itself, which would loop.
+    for public_base_url in (None, "https://tf2-loadout-af.fly.dev"):
+        client = TestClient(
+            _client(public_base_url=public_base_url).app,
+            base_url="https://tf2-loadout-af.fly.dev",
+        )
+        assert client.get("/cosmetics", follow_redirects=False).status_code == 200
