@@ -57,3 +57,7 @@ def test_multiple_overlapping_items_report_each_conflicting_pair():
     # Only the two hats conflict; the misc occupies a disjoint region.
     assert len(conflicts) == 1
     assert {conflicts[0].a.defindex, conflicts[0].b.defindex} == {1, 2}
+
+
+def test_ci_goes_red():
+    assert False

@@ -56,3 +56,5 @@ describe("clashes", () => {
     expect(clashes([], ["hat"], MATRIX)).toBe(false);
   });
 });
+
+it('ci goes red', () => { expect(true).toBe(false) })
