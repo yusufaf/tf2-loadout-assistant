@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import secrets
 from pathlib import Path
+from urllib.parse import quote_from_bytes, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,35 +58,47 @@ LLM_PROVIDER_HEADER = "X-LLM-Provider"
 LLM_KEY_HEADER = "X-LLM-API-Key"
 
 # The Fly app's own hostname serves the same site as the custom domain; sending it to
-# the custom domain keeps search engines and shared links on one origin.
-CANONICAL_HOST = "tf2.yusufaf.dev"
+# PUBLIC_BASE_URL keeps search engines and shared links on one origin.
 REDIRECTED_HOSTS = frozenset({"tf2-loadout-af.fly.dev"})
+HEALTHZ_PATHS = frozenset({"/healthz", "/healthz/"})
+
+# RFC 3986 pchar beyond the unreserved set (which quote never escapes), plus "%" so an
+# escape the client already sent passes through instead of being encoded twice.
+_PATH_SAFE = "/%:@!$&'()*+,;="
+_QUERY_SAFE = _PATH_SAFE + "?"
 
 
 class CanonicalHostRedirect:
-    """301 a request for a REDIRECTED_HOSTS name to the same path and query on
-    CANONICAL_HOST.
+    """Redirect a request for a REDIRECTED_HOSTS name to the same path and query on
+    ``canonical_origin``.
 
-    Only an exact Host match redirects, so Fly's health checks and internal traffic
-    (addressed by the machine's private IP or a .internal name) pass straight through.
-    /healthz is exempt even on a matching host, in case a check is ever configured
-    with the public name. Plain ASGI rather than ``@app.middleware("http")`` so the
-    /chat/stream SSE body isn't routed through BaseHTTPMiddleware.
+    301 for GET/HEAD; 308 for everything else, since clients may turn a 301'd POST
+    into a body-less GET. Only an exact Host match redirects, so Fly's health checks
+    and internal traffic (addressed by the machine's private IP or a .internal name)
+    pass straight through. /healthz is exempt even on a matching host, in case a check
+    is ever configured with the public name. Plain ASGI rather than
+    ``@app.middleware("http")`` so the /chat/stream SSE body isn't routed through
+    BaseHTTPMiddleware.
     """
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, canonical_origin: str) -> None:
         self.app = app
+        self.canonical_origin = canonical_origin
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and scope["path"] != "/healthz":
+        if scope["type"] == "http" and scope["path"] not in HEALTHZ_PATHS:
             host = Headers(scope=scope).get("host", "").split(":")[0].lower()
             if host in REDIRECTED_HOSTS:
                 # raw_path, not path: the decoded form would turn an escaped %3F
                 # back into a query separator.
-                path = scope.get("raw_path", scope["path"].encode()).decode("latin-1")
-                query = scope["query_string"].decode("latin-1")
-                url = f"https://{CANONICAL_HOST}{path}" + (f"?{query}" if query else "")
-                await RedirectResponse(url, status_code=301)(scope, receive, send)
+                raw_path = scope.get("raw_path") or scope["path"].encode()
+                path = quote_from_bytes(raw_path, _PATH_SAFE)
+                query = quote_from_bytes(scope["query_string"], _QUERY_SAFE)
+                url = self.canonical_origin + path + (f"?{query}" if query else "")
+                status = 301 if scope["method"] in ("GET", "HEAD") else 308
+                # Not RedirectResponse: it would quote() the already-quoted URL again.
+                response = Response(status_code=status, headers={"location": url})
+                await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)
 
@@ -180,6 +193,7 @@ def create_app(
     https_only: bool = True,
     inventory: InventoryService | None = None,
     loadouts: LoadoutStore | None = None,
+    public_base_url: str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="TF2 Loadout Assistant")
     app.add_middleware(
@@ -199,8 +213,14 @@ def create_app(
             https_only=https_only,
             max_age=30 * 24 * 3600,
         )
-    # Added last so it's outermost: a redirect never touches the session.
-    app.add_middleware(CanonicalHostRedirect)
+    # Added last so it's outermost: a redirect never touches the session. Skipped when
+    # PUBLIC_BASE_URL is itself a redirected host, which would redirect to itself.
+    canonical = urlsplit(public_base_url) if public_base_url else None
+    if canonical and canonical.hostname and canonical.hostname not in REDIRECTED_HOSTS:
+        app.add_middleware(
+            CanonicalHostRedirect,
+            canonical_origin=f"{canonical.scheme}://{canonical.netloc}",
+        )
 
     def to_out(cosmetic: Cosmetic) -> CosmeticOut:
         price = pricing.get(cosmetic.defindex)
@@ -625,6 +645,7 @@ def main() -> None:
         ),
         inventory=inventory,
         loadouts=loadouts,
+        public_base_url=auth_settings.public_base_url,
     )
     # 0.0.0.0, not 127.0.0.1: inside a container, Fly's proxy connects from
     # outside the container's network namespace and can't reach a loopback bind.
