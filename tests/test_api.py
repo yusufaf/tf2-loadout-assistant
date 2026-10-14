@@ -94,6 +94,22 @@ def test_lore_endpoint_returns_summary():
     assert "dapper cosmetic item for the Spy" in r.json()["summary"]
 
 
+def test_lore_endpoint_survives_a_corrupt_cache_file(tmp_path):
+    catalog = CatalogService(
+        [Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")]
+    )
+    lore = LoreService(_StubWiki(), cache_dir=tmp_path)
+    client = TestClient(create_app(catalog, PricingService({}), lore))
+    assert client.get("/lore/1").status_code == 200  # populates the cache
+    for p in (tmp_path / "lore").glob("*.json"):
+        p.write_text("{not json", encoding="utf-8")
+
+    r = client.get("/lore/1")
+
+    assert r.status_code == 200
+    assert "dapper cosmetic item for the Spy" in r.json()["summary"]
+
+
 def _chat_client() -> TestClient:
     """A client whose agent always answers with a fixed structured reply."""
 

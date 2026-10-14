@@ -66,3 +66,20 @@ async def test_caches_to_disk_and_avoids_second_fetch(tmp_path):
 
     assert first == second
     assert client.calls == 1  # second call served from cache
+
+
+@pytest.mark.parametrize("junk", ["{not json", '["x"]', '{"bogus": 1}'])
+async def test_corrupt_cache_file_is_treated_as_a_miss(tmp_path, junk):
+    client = StubClient(PAGE)
+    lore = LoreService(client, cache_dir=tmp_path)
+    first = await lore.get_lore("Team Captain")
+    # Glob rather than a computed name, so this doesn't pin the filename scheme.
+    for p in (tmp_path / "lore").glob("*.json"):
+        p.write_text(junk, encoding="utf-8")
+
+    second = await lore.get_lore("Team Captain")
+
+    assert second == first
+    assert client.calls == 2  # refetched instead of raising
+    assert await lore.get_lore("Team Captain") == first
+    assert client.calls == 2  # and the rewritten file is a good cache again

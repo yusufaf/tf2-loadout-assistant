@@ -40,8 +40,10 @@ class LoreService:
 
     async def get_lore(self, item_name: str) -> ItemLore | None:
         cache_file = self._cache_file(item_name)
-        if cache_file and cache_file.exists():
-            return ItemLore(**json.loads(cache_file.read_text(encoding="utf-8")))
+        if cache_file:
+            cached = self._read_cache(cache_file)
+            if cached is not None:
+                return cached
 
         # The TF2 wiki lacks the TextExtracts extension and its rendered infobox
         # duplicates flavor text, so we take the lead sentence from the raw wikitext.
@@ -58,9 +60,23 @@ class LoreService:
 
         lore = ItemLore(name=item_name, title=parse.get("title"), summary=summary)
         if cache_file:
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            cache_file.write_text(json.dumps(asdict(lore)), encoding="utf-8")
+            self._write_cache(cache_file, lore)
         return lore
+
+    def _read_cache(self, path: Path) -> ItemLore | None:
+        try:
+            return ItemLore(**json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError, TypeError):
+            # Missing, unreadable, truncated or wrong-shaped: all just mean "fetch again".
+            return None
+
+    def _write_cache(self, path: Path, lore: ItemLore) -> None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(asdict(lore)), encoding="utf-8")
+        except OSError:
+            # The cache is an optimization; failing to write it must not fail the lookup.
+            pass
 
 
 def _lead_from_wikitext(wikitext: str) -> str | None:
