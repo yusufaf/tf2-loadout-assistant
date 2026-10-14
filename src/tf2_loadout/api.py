@@ -18,7 +18,9 @@ from pydantic import BaseModel, Field, ValidationError
 from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_core import to_jsonable_python
+from starlette.datastructures import Headers
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from tf2_loadout.agent import (
     REJECTED_KEY,
@@ -53,6 +55,39 @@ FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 # back), and the session cookie is signed but not encrypted.
 LLM_PROVIDER_HEADER = "X-LLM-Provider"
 LLM_KEY_HEADER = "X-LLM-API-Key"
+
+# The Fly app's own hostname serves the same site as the custom domain; sending it to
+# the custom domain keeps search engines and shared links on one origin.
+CANONICAL_HOST = "tf2.yusufaf.dev"
+REDIRECTED_HOSTS = frozenset({"tf2-loadout-af.fly.dev"})
+
+
+class CanonicalHostRedirect:
+    """301 a request for a REDIRECTED_HOSTS name to the same path and query on
+    CANONICAL_HOST.
+
+    Only an exact Host match redirects, so Fly's health checks and internal traffic
+    (addressed by the machine's private IP or a .internal name) pass straight through.
+    /healthz is exempt even on a matching host, in case a check is ever configured
+    with the public name. Plain ASGI rather than ``@app.middleware("http")`` so the
+    /chat/stream SSE body isn't routed through BaseHTTPMiddleware.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope["path"] != "/healthz":
+            host = Headers(scope=scope).get("host", "").split(":")[0].lower()
+            if host in REDIRECTED_HOSTS:
+                # raw_path, not path: the decoded form would turn an escaped %3F
+                # back into a query separator.
+                path = scope.get("raw_path", scope["path"].encode()).decode("latin-1")
+                query = scope["query_string"].decode("latin-1")
+                url = f"https://{CANONICAL_HOST}{path}" + (f"?{query}" if query else "")
+                await RedirectResponse(url, status_code=301)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 class PriceOut(BaseModel):
@@ -164,6 +199,8 @@ def create_app(
             https_only=https_only,
             max_age=30 * 24 * 3600,
         )
+    # Added last so it's outermost: a redirect never touches the session.
+    app.add_middleware(CanonicalHostRedirect)
 
     def to_out(cosmetic: Cosmetic) -> CosmeticOut:
         price = pricing.get(cosmetic.defindex)

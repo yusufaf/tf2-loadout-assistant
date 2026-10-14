@@ -432,3 +432,36 @@ def test_chat_providers_lists_the_allowlist_even_without_a_service():
         providers = r.json()["providers"]
         assert [p["id"] for p in providers] == [spec.id for spec in PROVIDERS]
         assert all(p["label"] and p["model"] for p in providers)
+
+
+def test_fly_hostname_redirects_to_the_custom_domain_keeping_path_and_query():
+    client = TestClient(_client().app, base_url="https://tf2-loadout-af.fly.dev")
+    r = client.get("/cosmetics?used_by=Spy&q=fedora", follow_redirects=False)
+    assert r.status_code == 301
+    assert r.headers["location"] == "https://tf2.yusufaf.dev/cosmetics?used_by=Spy&q=fedora"
+    r = client.get("/lore/a%3Fb", follow_redirects=False)
+    assert r.headers["location"] == "https://tf2.yusufaf.dev/lore/a%3Fb"
+
+
+def test_fly_hostname_match_ignores_case_and_port():
+    r = _client().get(
+        "/", headers={"host": "TF2-Loadout-AF.fly.dev:443"}, follow_redirects=False
+    )
+    assert r.status_code == 301
+    assert r.headers["location"] == "https://tf2.yusufaf.dev/"
+
+
+def test_canonical_and_internal_hosts_are_not_redirected():
+    # Fly's health checker addresses the machine by its private IP, not a public name.
+    for host in ("tf2.yusufaf.dev", "172.19.0.2:8000", "tf2-loadout-af.internal"):
+        r = _client().get("/healthz", headers={"host": host}, follow_redirects=False)
+        assert r.status_code == 200, host
+        r = _client().get("/cosmetics", headers={"host": host}, follow_redirects=False)
+        assert r.status_code == 200, host
+
+
+def test_healthz_is_never_redirected():
+    client = TestClient(_client().app, base_url="https://tf2-loadout-af.fly.dev")
+    r = client.get("/healthz", follow_redirects=False)
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
