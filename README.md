@@ -1,5 +1,12 @@
 # TF2 Loadout Assistant
 
+Try on Team Fortress 2 cosmetics before you trade for them: see what clashes and what the
+whole loadout costs.
+
+**Try it: https://tf2.yusufaf.dev**
+
+![A Spy loadout on the bench: five cosmetics in the tray, an INCOMPATIBLE stamp on the two hats, and the estimated value of the whole loadout](docs/screenshot.png)
+
 A bench for Team Fortress 2 cosmetic loadouts: browse a class's cosmetics, try them on,
 and get equip-conflict detection and live pricing. An optional LLM advisor suggests
 loadouts from a described style ("look like a cop").
@@ -67,6 +74,8 @@ pins `ALLOW_MODEL_REQUESTS` to `False`, so no test can reach a provider by accid
 
 ## Credits & licensing
 
+- **Code** is MIT licensed (see [`LICENSE`](./LICENSE)). That covers the code only; the
+  assets below keep their own terms.
 - **Class icons** (`frontend/public/classes/`) are from the
   [Official TF2 Wiki](https://wiki.teamfortress.com/), licensed
   [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/). Note the
