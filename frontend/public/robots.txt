@@ -3,3 +3,5 @@ Disallow: /auth
 Disallow: /chat
 Disallow: /healthz
 Disallow: /me
+
+Sitemap: https://tf2.yusufaf.dev/sitemap.xml
