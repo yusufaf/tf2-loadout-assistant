@@ -1,5 +1,5 @@
 ---
-name: Mann Co. Loadout Bench
+name: TF2 Loadout Assistant
 identity: Mann Co. propaganda poster crossed with the in-game backpack UI
 tokens:
   colors:
@@ -56,7 +56,7 @@ tokens:
 
 ## Identity
 
-The Mann Co. Loadout Bench is a propaganda poster you can click on — warm paper stock, heavy ink outlines, hard offset "sticker" shadows, uppercase condensed display type, a rubber-stamp warning for conflicts. It is square by default: nothing here has soft rounded corners, soft blurred shadows, or floats and fades. If a new element looks like a modern SaaS card, it's wrong for this app.
+TF2 Loadout Assistant is a Mann Co. propaganda poster you can click on — warm paper stock, heavy ink outlines, hard offset "sticker" shadows, uppercase condensed display type, a rubber-stamp warning for conflicts. It is square by default: nothing here has soft rounded corners, soft blurred shadows, or floats and fades. If a new element looks like a modern SaaS card, it's wrong for this app.
 
 ## Color roles
 
@@ -182,5 +182,6 @@ In-universe Mann Co. register in labels and status copy: "Try it on before you t
 - No visual regression test — the frontend test suite (`pnpm test`) covers only pure logic modules (`filters.ts`, `conflicts.ts`); there is no DOM environment. Visual changes must be checked with real screenshots.
 - Item-quality colors are reserved but not wired to any data.
 - Social preview baseline is done (static `og:image` card, manifest, favicon
-  PNG/ICO, `robots.txt` — see `frontend/index.html`), but per-route share cards
-  and the sitemap are still open (tracked separately).
+  PNG/ICO, `robots.txt`, a one-URL `sitemap.xml` — see `frontend/index.html`), but
+  per-route share cards and a catalog-driven sitemap are still open (tracked
+  separately).

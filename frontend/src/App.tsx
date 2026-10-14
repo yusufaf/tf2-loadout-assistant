@@ -258,7 +258,7 @@ export default function App() {
     <div className="app">
       <header className="masthead">
         <h1>
-          Mann Co. <span className="co">Loadout</span> Bench
+          TF2 <span className="co">Loadout</span> Assistant
         </h1>
         <div className="masthead-side">
           <span className="tagline">Try it on before you trade for it</span>

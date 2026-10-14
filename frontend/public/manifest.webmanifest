@@ -1,6 +1,6 @@
 {
-  "name": "Mann Co. Loadout Bench",
-  "short_name": "Loadout Bench",
+  "name": "TF2 Loadout Assistant",
+  "short_name": "TF2 Loadout",
   "description": "Browse TF2 cosmetics by class, try on a loadout, catch equip conflicts, and get live backpack.tf pricing.",
   "start_url": "/",
   "display": "browser",
