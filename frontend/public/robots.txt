@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /auth
+Disallow: /chat
+Disallow: /healthz
+Disallow: /me
