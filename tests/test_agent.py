@@ -414,7 +414,9 @@ async def test_stream_reply_keeps_other_provider_errors_generic(status: int) -> 
     from pydantic_ai.exceptions import ModelHTTPError
 
     def factory(llm: UserLLM):
-        raise ModelHTTPError(status_code=status, model_name="m", body=None)
+        raise ModelHTTPError(
+            status_code=status, model_name="m", body={"error": "SECRET"}
+        )
 
     service = LoadoutAgentService(build_agent(None), _deps(), model_factory=factory)
     llm = UserLLM(provider="anthropic", api_key="sk-user")
@@ -422,6 +424,9 @@ async def test_stream_reply_keeps_other_provider_errors_generic(status: int) -> 
     assert events[-1]["kind"] == "error"
     assert "code" not in events[-1]
     assert events[-1]["detail"].startswith("model error:")
+    assert "SECRET" not in events[-1]["detail"]
+    # The status is the one detail worth keeping: it tells a rate limit from a block.
+    assert str(status) in events[-1]["detail"]
 
 
 async def test_service_returns_structured_reply() -> None:
