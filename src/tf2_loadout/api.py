@@ -39,6 +39,7 @@ from tf2_loadout.config import (
     load_env,
     provider_spec,
 )
+from tf2_loadout.conflicts import MAX_EQUIPPED
 from tf2_loadout.inventory import InventoryService
 from tf2_loadout.loadouts import DynamoLoadoutStore, LoadoutStore, SavedLoadout
 from tf2_loadout.lore import LoreService
@@ -139,10 +140,6 @@ class ConflictRequest(BaseModel):
 # whose state already lives in localStorage. The cap stops a client blowing the context
 # window (or our token budget) with an unbounded transcript.
 MAX_HISTORY_MESSAGES = 40
-
-# The bench holds a handful of cosmetics at most; this just guards against garbage input,
-# not a real usage ceiling.
-MAX_EQUIPPED = 16
 
 
 class ChatRequest(BaseModel):
