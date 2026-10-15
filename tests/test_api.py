@@ -21,7 +21,12 @@ from tf2_loadout.models import Cosmetic, Price
 from tf2_loadout.catalog import CatalogService
 from tf2_loadout.lore import ItemLore, LoreService
 from tf2_loadout.pricing import PricingService
-from tf2_loadout.api import CanonicalHostRedirect, create_app
+from tf2_loadout.api import (
+    MAX_HISTORY_CHARS,
+    MAX_MESSAGE_CHARS,
+    CanonicalHostRedirect,
+    create_app,
+)
 from tf2_loadout.config import PROVIDERS
 from tf2_loadout.conflicts import MAX_EQUIPPED
 
@@ -309,6 +314,31 @@ def test_chat_history_round_trips():
 def test_chat_rejects_oversized_history():
     client = _chat_client()
     r = client.post("/chat", json={"message": "hi", "history": [{}] * 200}, headers=LLM_HEADERS)
+    assert r.status_code == 422
+
+
+@pytest.mark.parametrize("route", ["/chat", "/chat/stream"])
+def test_chat_rejects_oversized_message(route):
+    r = _chat_client().post(
+        route, json={"message": "x" * (MAX_MESSAGE_CHARS + 1)}, headers=LLM_HEADERS
+    )
+    assert r.status_code == 422
+
+
+def test_chat_rejects_oversized_history_entry():
+    client = _chat_client()
+    history = client.post(
+        "/chat", json={"message": "dress my Spy"}, headers=LLM_HEADERS
+    ).json()["history"]
+    # A valid-shaped history, so this fails on size alone (not "malformed history").
+    prompt = history[0]["parts"][0]
+    assert prompt["part_kind"] == "user-prompt"
+    prompt["content"] = "x" * MAX_HISTORY_CHARS
+
+    r = client.post(
+        "/chat", json={"message": "and a hat?", "history": history}, headers=LLM_HEADERS
+    )
+
     assert r.status_code == 422
 
 

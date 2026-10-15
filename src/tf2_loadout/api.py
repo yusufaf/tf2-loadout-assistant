@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import quote_from_bytes, urlsplit
 
@@ -15,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_core import to_jsonable_python
 from starlette.datastructures import Headers
@@ -141,10 +142,31 @@ class ConflictRequest(BaseModel):
 # window (or our token budget) with an unbounded transcript.
 MAX_HISTORY_MESSAGES = 40
 
+# The count cap alone lets one entry be arbitrarily large. 400k characters is a generous
+# multiple of a realistic transcript (an 8-request turn with full searches is ~35-60k).
+MAX_HISTORY_CHARS = 400_000
+
+# A described look plus the "[Current class: ...]" prefix the client adds -- no honest
+# message needs more, and every character is billed to the player's own key.
+MAX_MESSAGE_CHARS = 2000
+
+
+def history_chars(entries: Sequence[dict]) -> int:
+    """Serialized size of a transcript, the one measure both caps and trimming use."""
+    return sum(len(json.dumps(e)) for e in entries)
+
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(max_length=MAX_MESSAGE_CHARS)
     history: list[dict] = Field(default_factory=list, max_length=MAX_HISTORY_MESSAGES)
+
+    @field_validator("history")
+    @classmethod
+    def _history_fits(cls, history: list[dict]) -> list[dict]:
+        if history_chars(history) > MAX_HISTORY_CHARS:
+            raise ValueError("chat history is too large")
+        return history
+
     # Defindexes currently on the player's bench, so the agent can carry them forward and
     # conflict-check against them instead of re-guessing from names in the prompt.
     equipped: list[int] = Field(default_factory=list, max_length=MAX_EQUIPPED)
