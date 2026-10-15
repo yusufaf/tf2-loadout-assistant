@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FILTERS, applyFilters, activeFilterCount, clashingIds } from "./filters";
-import type { ConflictMatrix } from "./conflicts";
+import {
+  DEFAULT_FILTERS,
+  applyFilters,
+  activeFilterCount,
+  clashingIds,
+  toggleEquip,
+} from "./filters";
+import { MAX_EQUIPPED, type ConflictMatrix } from "./conflicts";
 import type { Conflict, Cosmetic } from "./api";
 
 const MATRIX: ConflictMatrix = { whole_head: ["hat"], hat: ["whole_head"] };
@@ -301,5 +307,28 @@ describe("clashingIds", () => {
 
   it("is empty for no conflicts", () => {
     expect(clashingIds([])).toEqual(new Set());
+  });
+});
+
+describe("toggleEquip", () => {
+  const full = () =>
+    Array.from({ length: MAX_EQUIPPED }, (_, i) => cosmetic({ defindex: i + 1 }));
+
+  it("adds an item that is not on the bench", () => {
+    expect(toggleEquip([FEDORA], BOOTS)).toEqual([FEDORA, BOOTS]);
+  });
+
+  it("removes an item that is already equipped", () => {
+    expect(toggleEquip([FEDORA, BOOTS], FEDORA)).toEqual([BOOTS]);
+  });
+
+  it("refuses a new item once the bench is full", () => {
+    expect(toggleEquip(full(), cosmetic({ defindex: 999 }))).toBeNull();
+  });
+
+  it("still removes from a full bench", () => {
+    const bench = full();
+    const next = toggleEquip(bench, bench[0]);
+    expect(next).toHaveLength(MAX_EQUIPPED - 1);
   });
 });

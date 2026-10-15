@@ -16,24 +16,19 @@ import {
   type Me,
   type Inventory,
 } from "./api";
-import { DEFAULT_FILTERS, applyFilters, clashingIds, type FilterState } from "./filters";
-import type { ConflictMatrix } from "./conflicts";
+import {
+  DEFAULT_FILTERS,
+  applyFilters,
+  clashingIds,
+  toggleEquip,
+  type FilterState,
+} from "./filters";
+import { MAX_EQUIPPED, type ConflictMatrix } from "./conflicts";
+import { CLASSES } from "./classes";
 import FilterBar from "./FilterBar";
 import { useSavedLoadouts } from "./useSavedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
 import ChatPanel from "./ChatPanel";
-
-const CLASSES = [
-  "Scout",
-  "Soldier",
-  "Pyro",
-  "Demoman",
-  "Heavy",
-  "Engineer",
-  "Medic",
-  "Sniper",
-  "Spy",
-];
 
 function priceTotals(items: Cosmetic[]): string {
   const sums = new Map<string, number>();
@@ -186,12 +181,20 @@ export default function App() {
     [cosmetics, filters, loadout, matrix, owned]
   );
 
+  function flashNote(text: string) {
+    setShareNote(text);
+    setTimeout(() => setShareNote(""), 2500);
+  }
+
   function equip(item: Cosmetic) {
-    setLoadout((l) =>
-      l.some((c) => c.defindex === item.defindex)
-        ? l.filter((c) => c.defindex !== item.defindex) // click again to remove
-        : [...l, item]
-    );
+    // Read from the render closure rather than a functional updater: the "bench is
+    // full" note is a side effect, and StrictMode double-invokes updaters.
+    const next = toggleEquip(loadout, item); // click again to remove
+    if (next === null) {
+      flashNote(`The bench holds ${MAX_EQUIPPED} cosmetics at most.`);
+      return;
+    }
+    setLoadout(next);
   }
   function unequip(defindex: number) {
     setLoadout((l) => l.filter((c) => c.defindex !== defindex));
@@ -204,8 +207,10 @@ export default function App() {
   }
 
   function loadSaved(items: Cosmetic[], savedCls: string) {
-    setCls(savedCls);
-    setLoadout(items);
+    // A saved class can be anything (an imported file, or the API, which doesn't check
+    // it); an unknown one would leak into the chat prefix, so keep the current class.
+    if (CLASSES.includes(savedCls)) setCls(savedCls);
+    setLoadout(items.slice(0, MAX_EQUIPPED));
   }
 
   function renameSaved(id: string, current: string) {
@@ -222,11 +227,10 @@ export default function App() {
     const url = shareUrl(savedCls, items);
     try {
       await navigator.clipboard.writeText(url);
-      setShareNote("Link copied!");
+      flashNote("Link copied!");
     } catch {
-      setShareNote(url);
+      flashNote(url);
     }
-    setTimeout(() => setShareNote(""), 2500);
   }
 
   function exportLoadouts() {
@@ -504,7 +508,11 @@ export default function App() {
           </section>
 
           {chatAvailable && (
-            <ChatPanel cls={cls} loadout={loadout} onEquip={setLoadout} />
+            <ChatPanel
+              cls={cls}
+              loadout={loadout}
+              onEquip={(items) => setLoadout(items.slice(0, MAX_EQUIPPED))}
+            />
           )}
         </aside>
       </div>

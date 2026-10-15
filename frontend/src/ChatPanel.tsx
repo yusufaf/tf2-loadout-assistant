@@ -5,6 +5,7 @@ import {
   streamChat,
   ChatUnavailableError,
   LlmKeyError,
+  MAX_MESSAGE_CHARS,
   type ChatProvider,
   type ChatStreamEvent,
   type Conflict,
@@ -313,6 +314,7 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
           <input
             className="search chat-input"
             placeholder={`Describe a ${cls} look…`}
+            maxLength={MAX_MESSAGE_CHARS}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={busy}
