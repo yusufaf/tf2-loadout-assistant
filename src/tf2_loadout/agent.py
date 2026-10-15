@@ -15,6 +15,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, replace
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
@@ -31,6 +32,7 @@ from tf2_loadout.config import (
     UserLLM,
     build_user_model,
 )
+from tf2_loadout.conflicts import MAX_EQUIPPED
 from tf2_loadout.lore import LoreService
 from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
@@ -129,6 +131,10 @@ MAX_OUTPUT_TOKENS = 2048
 # Past a dozen or so keywords every item matches something and the ranking degrades into
 # noise, so only the leading keywords count.
 MAX_QUERY_KEYWORDS = 12
+
+# A page of results the model can actually read; past it, tool output just burns the
+# player's tokens.
+MAX_SEARCH_LIMIT = 50
 
 
 def _keyword_matches(items: list[Cosmetic], query: str) -> list[Cosmetic]:
@@ -237,7 +243,7 @@ def build_agent(
         Args:
             used_by: Class name to restrict to, e.g. "Spy". Omit to search all classes.
             query: Space-separated keywords; items matching the most are returned first.
-            limit: Maximum items to return.
+            limit: Maximum items to return, from 1 to 50 (values outside are clamped).
             max_ref: Keep only items priced at or under this many refined metal. Keys
                 convert automatically; items with no ref-comparable price (unpriced, or
                 priced in a currency with no metal exchange rate) are dropped rather
@@ -261,6 +267,9 @@ def build_agent(
         if owned_only:
             owned = ctx.deps.owned or frozenset()
             items = [c for c in items if c.defindex in owned]
+        # Clamp rather than constrain the schema: a schema bound makes a model that
+        # over-asks burn a request on a retry, and a negative slice returns the catalog.
+        limit = max(1, min(limit, MAX_SEARCH_LIMIT))
         return [_summary(c, ctx.deps.pricing) for c in items[:limit]]
 
     @agent.tool
@@ -291,16 +300,20 @@ def build_agent(
 
     @agent.tool
     def check_conflicts(
-        ctx: RunContext[LoadoutDeps], defindexes: list[int]
+        ctx: RunContext[LoadoutDeps],
+        defindexes: Annotated[list[int], Field(max_length=MAX_EQUIPPED)],
     ) -> list[dict]:
         """Report which of the given cosmetics cannot be worn together.
 
         An empty list means the loadout is valid. Unknown defindexes are ignored.
 
         Args:
-            defindexes: The cosmetics to check against each other.
+            defindexes: The cosmetics to check against each other, at most 16.
         """
-        cosmetics = [c for di in defindexes if (c := ctx.deps.catalog.get(di))]
+        # De-duplicate so an item is never reported as clashing with itself.
+        cosmetics = [
+            c for di in dict.fromkeys(defindexes) if (c := ctx.deps.catalog.get(di))
+        ]
         # Go through the catalog so the items_game conflict matrix applies -- it catches
         # clashes between differently-named regions that a set overlap would miss.
         return [

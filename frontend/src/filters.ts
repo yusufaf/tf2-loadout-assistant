@@ -5,8 +5,16 @@
  * without a DOM. `App.tsx` owns the state; this module owns the rules.
  */
 
-import { clashingRegions, type ConflictMatrix } from "./conflicts";
+import { MAX_EQUIPPED, clashingRegions, type ConflictMatrix } from "./conflicts";
 import type { Conflict, Cosmetic } from "./api";
+
+/** Click-to-toggle an item on the bench; null when adding it would overflow. */
+export function toggleEquip(loadout: Cosmetic[], item: Cosmetic): Cosmetic[] | null {
+  if (loadout.some((c) => c.defindex === item.defindex)) {
+    return loadout.filter((c) => c.defindex !== item.defindex);
+  }
+  return loadout.length >= MAX_EQUIPPED ? null : [...loadout, item];
+}
 
 /** How exclusive an item is, within the selected class's items. */
 export type Scope = "any" | "one" | "multi" | "all";

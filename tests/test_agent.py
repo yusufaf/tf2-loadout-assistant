@@ -17,10 +17,12 @@ from tf2_loadout.agent import (
     LoadoutReply,
     MAX_OUTPUT_TOKENS,
     MAX_QUERY_KEYWORDS,
+    MAX_SEARCH_LIMIT,
     build_agent,
     build_chat_service,
 )
 from tf2_loadout.config import LLMSettings, UserLLM
+from tf2_loadout.conflicts import MAX_EQUIPPED
 from tf2_loadout.lore import LoreService
 from tf2_loadout.catalog import CatalogService
 from tf2_loadout.models import Cosmetic, Price
@@ -37,6 +39,18 @@ def _deps() -> LoadoutDeps:
     )
     pricing = PricingService({1: Price("metal", 5.0, 6.0)})
     return LoadoutDeps(catalog=catalog, pricing=pricing, lore=None)
+
+
+def _many_spy_deps(n: int) -> LoadoutDeps:
+    """``n`` Spy cosmetics. Not ``_deps()``: with only two Spy items, ``limit=-1`` sliced
+    as ``[:-1]`` already returns one item, so a clamp test would be green before the fix."""
+    catalog = CatalogService(
+        [
+            Cosmetic(i, f"Spy Item {i}", frozenset({f"r{i}"}), ("Spy",), "misc", f"img{i}")
+            for i in range(1, n + 1)
+        ]
+    )
+    return LoadoutDeps(catalog=catalog, pricing=PricingService({}), lore=None)
 
 
 def _tool_returns(messages: list[ModelMessage], tool_name: str) -> list:
@@ -117,6 +131,46 @@ async def test_search_filters_by_class() -> None:
         await agent.run("dress my Spy", deps=_deps())
     items = _tool_returns(messages, "search_cosmetics")[0]
     assert [i["defindex"] for i in items] == [1, 2]
+
+
+async def test_search_clamps_limit_to_the_cap() -> None:
+    agent = build_agent(
+        _calls_then_finishes("search_cosmetics", {"used_by": "Spy", "limit": 1000})
+    )
+    with capture_run_messages() as messages:
+        await agent.run("dress my Spy", deps=_many_spy_deps(MAX_SEARCH_LIMIT + 10))
+    assert len(_tool_returns(messages, "search_cosmetics")[0]) == MAX_SEARCH_LIMIT
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+async def test_search_treats_a_non_positive_limit_as_one(limit: int) -> None:
+    agent = build_agent(
+        _calls_then_finishes("search_cosmetics", {"used_by": "Spy", "limit": limit})
+    )
+    with capture_run_messages() as messages:
+        await agent.run("dress my Spy", deps=_many_spy_deps(MAX_SEARCH_LIMIT + 10))
+    assert len(_tool_returns(messages, "search_cosmetics")[0]) == 1
+
+
+async def test_check_conflicts_ignores_duplicate_defindexes() -> None:
+    agent = build_agent(_calls_then_finishes("check_conflicts", {"defindexes": [1, 1]}))
+    with capture_run_messages() as messages:
+        await agent.run("check it", deps=_deps())
+    # An item is not in conflict with itself.
+    assert _tool_returns(messages, "check_conflicts")[0] == []
+
+
+async def test_check_conflicts_schema_caps_the_list() -> None:
+    agent = build_agent(TestModel())
+    model = TestModel()
+    with agent.override(model=model):
+        await agent.run("hello", deps=_deps())
+    check = next(
+        t
+        for t in model.last_model_request_parameters.function_tools
+        if t.name == "check_conflicts"
+    )
+    assert check.parameters_json_schema["properties"]["defindexes"]["maxItems"] == MAX_EQUIPPED
 
 
 async def test_search_combines_class_and_query() -> None:

@@ -1,4 +1,6 @@
 import type { Cosmetic } from "./api";
+import { CLASSES } from "./classes";
+import { MAX_EQUIPPED } from "./conflicts";
 
 interface SharePayload {
   c: string; // class
@@ -28,7 +30,12 @@ export function decodeLoadout(param: string): { cls: string; defindexes: number[
     const json = atob(fromUrlSafe(param));
     const parsed = JSON.parse(json) as Partial<SharePayload>;
     if (typeof parsed.c !== "string" || !Array.isArray(parsed.d)) return null;
-    const defindexes = parsed.d.filter((n) => typeof n === "number");
+    // The class rides into every chat prompt, and the list drives one fetch per item:
+    // a crafted link must not be able to set either to something unbounded.
+    if (!CLASSES.includes(parsed.c)) return null;
+    const defindexes = [
+      ...new Set(parsed.d.filter((n) => Number.isSafeInteger(n) && n > 0)),
+    ].slice(0, MAX_EQUIPPED);
     return { cls: parsed.c, defindexes };
   } catch {
     return null;

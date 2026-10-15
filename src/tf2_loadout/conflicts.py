@@ -23,6 +23,11 @@ class Conflict:
 
 ConflictMatrix = dict[str, frozenset[str]]
 
+# The most cosmetics any one bench, saved loadout or suggestion may hold. find_conflicts
+# tests every pair, so its cost grows with the square of this; every list that feeds it
+# is capped here rather than trusted. Mirrored by ``MAX_EQUIPPED`` in conflicts.ts.
+MAX_EQUIPPED = 16
+
 
 def _conflicting_regions(
     a: frozenset[str], b: frozenset[str], matrix: ConflictMatrix

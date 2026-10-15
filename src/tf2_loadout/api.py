@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import secrets
+from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from urllib.parse import quote_from_bytes, urlsplit
 
@@ -15,8 +17,15 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ValidationError
-from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelMessagesTypeAdapter,
+    ModelRequest,
+    RetryPromptPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 from pydantic_core import to_jsonable_python
 from starlette.datastructures import Headers
 from starlette.middleware.sessions import SessionMiddleware
@@ -39,6 +48,7 @@ from tf2_loadout.config import (
     load_env,
     provider_spec,
 )
+from tf2_loadout.conflicts import MAX_EQUIPPED
 from tf2_loadout.inventory import InventoryService
 from tf2_loadout.loadouts import DynamoLoadoutStore, LoadoutStore, SavedLoadout
 from tf2_loadout.lore import LoreService
@@ -131,23 +141,86 @@ class ConflictOut(BaseModel):
 
 
 class ConflictRequest(BaseModel):
-    defindexes: list[int]
+    defindexes: list[int] = Field(max_length=MAX_EQUIPPED)
 
 
 # Chat is stateless: the client holds the transcript and sends it back each turn, which
 # keeps the server a pure function of its injected services -- like the rest of the app,
 # whose state already lives in localStorage. The cap stops a client blowing the context
-# window (or our token budget) with an unbounded transcript.
+# window (or our token budget) with an unbounded transcript. The same caps bound what the
+# server hands back (``fit_history``), so a well-behaved client never trips them.
 MAX_HISTORY_MESSAGES = 40
 
-# The bench holds a handful of cosmetics at most; this just guards against garbage input,
-# not a real usage ceiling.
-MAX_EQUIPPED = 16
+# The count cap alone lets one entry be arbitrarily large. 400k characters is a generous
+# multiple of a realistic transcript (an 8-request turn with full searches is ~35-60k).
+MAX_HISTORY_CHARS = 400_000
+
+# A described look plus the "[Current class: ...]" prefix the client adds -- no honest
+# message needs more, and every character is billed to the player's own key.
+MAX_MESSAGE_CHARS = 2000
+
+
+def history_chars(entries: Sequence[dict]) -> int:
+    """Serialized size of a transcript, the one measure both caps and trimming use."""
+    return sum(len(json.dumps(e)) for e in entries)
+
+
+def _starts_turn(message: ModelMessage) -> bool:
+    return isinstance(message, ModelRequest) and any(
+        isinstance(p, UserPromptPart) for p in message.parts
+    )
+
+
+def fit_history(
+    messages: Sequence[ModelMessage],
+    max_messages: int = MAX_HISTORY_MESSAGES,
+    max_chars: int = MAX_HISTORY_CHARS,
+) -> list[ModelMessage]:
+    """The newest whole turns of ``messages`` that fit both history caps.
+
+    The client resends whatever it is handed, so the server trims to what it would accept
+    next turn -- otherwise a few tool-heavy turns (~17 messages each) push a normal
+    conversation past the cap and the fourth message 422s. Cutting only at a user prompt
+    keeps every tool call paired with its return. Returns ``[]`` when even the newest
+    turn is over a cap, so the next turn starts fresh instead of failing.
+
+    Size is measured per entry the same way ``history_chars`` does, so a trimmed history
+    always passes ``ChatRequest``'s own check.
+    """
+    start, count, chars = len(messages), 0, 0
+    for i in range(len(messages) - 1, -1, -1):
+        count += 1
+        chars += len(json.dumps(to_jsonable_python(messages[i])))
+        if count > max_messages or chars > max_chars:
+            break
+        if _starts_turn(messages[i]):
+            start = i
+    kept = list(messages[start:])
+    if kept:
+        # pydantic-ai can merge the previous turn's final tool return into the request
+        # that starts the next turn. That turn was just dropped, so its return would be
+        # an orphan with no call.
+        first = kept[0]
+        kept[0] = replace(
+            first,
+            parts=[
+                p for p in first.parts if not isinstance(p, ToolReturnPart | RetryPromptPart)
+            ],
+        )
+    return kept
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(max_length=MAX_MESSAGE_CHARS)
     history: list[dict] = Field(default_factory=list, max_length=MAX_HISTORY_MESSAGES)
+
+    @field_validator("history")
+    @classmethod
+    def _history_fits(cls, history: list[dict]) -> list[dict]:
+        if history_chars(history) > MAX_HISTORY_CHARS:
+            raise ValueError("chat history is too large")
+        return history
+
     # Defindexes currently on the player's bench, so the agent can carry them forward and
     # conflict-check against them instead of re-guessing from names in the prompt.
     equipped: list[int] = Field(default_factory=list, max_length=MAX_EQUIPPED)
@@ -249,6 +322,10 @@ def create_app(
         through the same conflict engine the tray uses: the agent is instructed to
         self-check with check_conflicts, but a lazy model can skip that, so the server
         checks again rather than trusting the prompt alone.
+
+        A suggestion replaces the bench, so more than ``MAX_EQUIPPED`` is never
+        meaningful; it is truncated rather than rejected, since it is model output and
+        not client input.
         """
         seen: set[int] = set()
         suggested: list[int] = []
@@ -257,6 +334,8 @@ def create_app(
                 continue
             seen.add(di)
             suggested.append(di)
+            if len(suggested) == MAX_EQUIPPED:
+                break
         cosmetics = [c for di in suggested if (c := catalog.get(di))]
         conflicts = [
             ConflictOut(a=c.a.defindex, b=c.b.defindex, regions=sorted(c.regions))
@@ -397,7 +476,7 @@ def create_app(
             message=result.output.message,
             suggested_defindexes=suggested,
             conflicts=conflicts,
-            history=to_jsonable_python(result.all_messages()),
+            history=to_jsonable_python(fit_history(result.all_messages())),
         )
 
     @app.post("/chat/stream")
@@ -432,7 +511,7 @@ def create_app(
                         "message": result.output.message,
                         "suggested_defindexes": suggested,
                         "conflicts": [c.model_dump() for c in conflicts],
-                        "history": to_jsonable_python(result.all_messages()),
+                        "history": to_jsonable_python(fit_history(result.all_messages())),
                     }
                 yield json.dumps(event) + "\n"
 
@@ -440,7 +519,9 @@ def create_app(
 
     @app.post("/loadout/conflicts")
     def loadout_conflicts(req: ConflictRequest) -> dict:
-        cosmetics = [c for di in req.defindexes if (c := catalog.get(di))]
+        # dict.fromkeys de-duplicates in order: a repeated id would otherwise "conflict"
+        # with itself.
+        cosmetics = [c for di in dict.fromkeys(req.defindexes) if (c := catalog.get(di))]
         conflicts = catalog.conflicts(cosmetics)
         return {
             "conflicts": [

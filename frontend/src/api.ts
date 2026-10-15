@@ -232,6 +232,13 @@ export async function deleteLoadout(id: string): Promise<void> {
   if (!res.ok && res.status !== 404) throw new Error(`loadouts ${res.status}`);
 }
 
+/**
+ * Longest message the chat box accepts. The API caps `message` at 2000
+ * (`MAX_MESSAGE_CHARS` in `api.py`) and `ChatPanel` prepends `[Current class: ...]\n`
+ * (at most 27 characters for a real class name).
+ */
+export const MAX_MESSAGE_CHARS = 1900;
+
 export async function sendChat(
   message: string,
   history: unknown[],

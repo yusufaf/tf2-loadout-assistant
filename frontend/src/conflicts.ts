@@ -6,6 +6,13 @@
  * `tests/test_conflicts.py`, so a change to the rule there should fail here too.
  */
 
+/**
+ * Most cosmetics the bench, a saved loadout or a suggestion may hold. Mirrors
+ * `MAX_EQUIPPED` in `conflicts.py`: the API answers 422 to a longer list (conflict
+ * checks, chat `equipped`, saved loadouts), so the UI never builds one.
+ */
+export const MAX_EQUIPPED = 16;
+
 /** Region -> regions it conflicts with. The server sends this symmetric. */
 export type ConflictMatrix = Record<string, string[]>;
 
