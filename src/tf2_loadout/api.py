@@ -132,7 +132,7 @@ class ConflictOut(BaseModel):
 
 
 class ConflictRequest(BaseModel):
-    defindexes: list[int]
+    defindexes: list[int] = Field(max_length=MAX_EQUIPPED)
 
 
 # Chat is stateless: the client holds the transcript and sends it back each turn, which
@@ -246,6 +246,10 @@ def create_app(
         through the same conflict engine the tray uses: the agent is instructed to
         self-check with check_conflicts, but a lazy model can skip that, so the server
         checks again rather than trusting the prompt alone.
+
+        A suggestion replaces the bench, so more than ``MAX_EQUIPPED`` is never
+        meaningful; it is truncated rather than rejected, since it is model output and
+        not client input.
         """
         seen: set[int] = set()
         suggested: list[int] = []
@@ -254,6 +258,8 @@ def create_app(
                 continue
             seen.add(di)
             suggested.append(di)
+            if len(suggested) == MAX_EQUIPPED:
+                break
         cosmetics = [c for di in suggested if (c := catalog.get(di))]
         conflicts = [
             ConflictOut(a=c.a.defindex, b=c.b.defindex, regions=sorted(c.regions))
@@ -437,7 +443,9 @@ def create_app(
 
     @app.post("/loadout/conflicts")
     def loadout_conflicts(req: ConflictRequest) -> dict:
-        cosmetics = [c for di in req.defindexes if (c := catalog.get(di))]
+        # dict.fromkeys de-duplicates in order: a repeated id would otherwise "conflict"
+        # with itself.
+        cosmetics = [c for di in dict.fromkeys(req.defindexes) if (c := catalog.get(di))]
         conflicts = catalog.conflicts(cosmetics)
         return {
             "conflicts": [

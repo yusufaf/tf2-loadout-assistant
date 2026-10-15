@@ -23,6 +23,7 @@ from tf2_loadout.lore import ItemLore, LoreService
 from tf2_loadout.pricing import PricingService
 from tf2_loadout.api import CanonicalHostRedirect, create_app
 from tf2_loadout.config import PROVIDERS
+from tf2_loadout.conflicts import MAX_EQUIPPED
 
 # What the browser sends with every chat turn. The value is never checked here --
 # the stub factory below ignores it -- but its absence must be a 401.
@@ -319,6 +320,55 @@ def test_conflicts_endpoint_flags_same_region():
     assert len(conflicts) == 1
     assert {conflicts[0]["a"], conflicts[0]["b"]} == {1, 3}
     assert "hat" in conflicts[0]["regions"]
+
+
+def test_conflicts_endpoint_rejects_more_than_max_equipped():
+    # The pairwise check is quadratic, so the list is capped rather than trusted.
+    r = _client().post(
+        "/loadout/conflicts", json={"defindexes": [1] * (MAX_EQUIPPED + 1)}
+    )
+    assert r.status_code == 422
+
+
+def test_conflicts_endpoint_ignores_duplicate_defindexes():
+    r = _client().post("/loadout/conflicts", json={"defindexes": [1, 1, 3]})
+    assert r.status_code == 200
+    conflicts = r.json()["conflicts"]
+    # One pair, not an item "conflicting" with itself.
+    assert len(conflicts) == 1
+    assert {conflicts[0]["a"], conflicts[0]["b"]} == {1, 3}
+
+
+def test_chat_caps_suggestions_at_max_equipped():
+    ids = list(range(1, MAX_EQUIPPED + 5))
+
+    def model_fn(messages, info):
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    info.output_tools[0].name,
+                    {"message": "Everything!", "suggested_defindexes": ids + [ids[0]]},
+                )
+            ]
+        )
+
+    # Each item has its own region, so none of them conflict.
+    catalog = CatalogService(
+        [
+            Cosmetic(i, f"Item {i}", frozenset({f"r{i}"}), ("Spy",), "misc", f"img{i}")
+            for i in ids
+        ]
+    )
+    pricing = PricingService({})
+    chat = _service(
+        FunctionModel(model_fn), LoadoutDeps(catalog=catalog, pricing=pricing, lore=None)
+    )
+    client = TestClient(create_app(catalog, pricing, None, chat))
+
+    body = client.post("/chat", json={"message": "hi"}, headers=LLM_HEADERS).json()
+
+    assert body["suggested_defindexes"] == ids[:MAX_EQUIPPED]
+    assert body["conflicts"] == []
 
 
 # --- filter surfaces: attributes on the payload, the matrix, and uncapped lists ---
