@@ -9,8 +9,14 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic_ai.messages import ModelResponse, ToolCallPart
-from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.messages import (
+    ModelRequest,
+    ModelResponse,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
+from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 
 from pydantic_ai.exceptions import ModelHTTPError
@@ -21,11 +27,15 @@ from tf2_loadout.models import Cosmetic, Price
 from tf2_loadout.catalog import CatalogService
 from tf2_loadout.lore import ItemLore, LoreService
 from tf2_loadout.pricing import PricingService
+from pydantic_core import to_jsonable_python
+
 from tf2_loadout.api import (
     MAX_HISTORY_CHARS,
+    MAX_HISTORY_MESSAGES,
     MAX_MESSAGE_CHARS,
     CanonicalHostRedirect,
     create_app,
+    fit_history,
 )
 from tf2_loadout.config import PROVIDERS
 from tf2_loadout.conflicts import MAX_EQUIPPED
@@ -340,6 +350,107 @@ def test_chat_rejects_oversized_history_entry():
     )
 
     assert r.status_code == 422
+
+
+def _turn(n: int, calls: int, carry_return: bool = False) -> list:
+    """One turn: a user prompt, then ``calls`` tool call/return pairs."""
+    first_parts = [UserPromptPart(f"turn {n}")]
+    if carry_return:
+        # pydantic-ai can merge the previous turn's final tool return into this request.
+        first_parts.insert(0, ToolReturnPart("final_result", "ok", tool_call_id=f"f{n - 1}"))
+    msgs = [ModelRequest(parts=first_parts)]
+    for k in range(calls):
+        msgs.append(
+            ModelResponse(
+                parts=[ToolCallPart("search_cosmetics", {"used_by": "Spy"}, tool_call_id=f"c{n}-{k}")]
+            )
+        )
+        msgs.append(
+            ModelRequest(parts=[ToolReturnPart("search_cosmetics", [], tool_call_id=f"c{n}-{k}")])
+        )
+    return msgs
+
+
+def _size(messages) -> int:
+    return sum(len(json.dumps(to_jsonable_python(m))) for m in messages)
+
+
+def test_fit_history_keeps_newest_whole_turns():
+    t0, t1, t2 = (_turn(i, 3) for i in range(3))  # 7 messages each
+    assert fit_history(t0 + t1 + t2, max_messages=14, max_chars=10**9) == t1 + t2
+
+
+def test_fit_history_respects_the_char_cap():
+    t0, t1, t2 = (_turn(i, 3) for i in range(3))
+    assert fit_history(t0 + t1 + t2, max_messages=100, max_chars=_size(t2)) == t2
+
+
+def test_fit_history_returns_nothing_when_the_newest_turn_is_too_big():
+    # The next turn then starts fresh instead of 422ing on a transcript it can't resend.
+    assert fit_history(_turn(0, 3), max_messages=2, max_chars=10**9) == []
+
+
+def test_fit_history_drops_a_carried_tool_return_from_the_first_kept_request():
+    t0, t1, t2 = _turn(0, 3), _turn(1, 3, carry_return=True), _turn(2, 3)
+    kept = fit_history(t0 + t1 + t2, max_messages=14, max_chars=10**9)
+    # Its call was trimmed away with the previous turn, so the return would be an orphan.
+    assert [p.part_kind for p in kept[0].parts] == ["user-prompt"]
+    assert kept[1:] == (t1 + t2)[1:]
+
+
+@pytest.mark.parametrize("route", ["/chat", "/chat/stream"])
+def test_chat_history_stays_within_caps_across_many_turns(route):
+    """A real turn makes several tool calls; resending the returned history every turn
+    must never trip the history caps."""
+
+    def model_fn(messages, info):
+        calls = 0
+        for m in reversed(messages):
+            if m.kind == "request" and any(p.part_kind == "user-prompt" for p in m.parts):
+                break
+            if m.kind == "response":
+                calls += 1
+        if calls < 7:
+            return ModelResponse(parts=[ToolCallPart("search_cosmetics", {"used_by": "Spy"})])
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    info.output_tools[0].name,
+                    {"message": "ok", "suggested_defindexes": [1]},
+                )
+            ]
+        )
+
+    # /chat/stream runs the agent with an event stream handler, so the model must also
+    # be streamable: replay model_fn's one tool call as a single delta.
+    async def stream_fn(messages, info):
+        (part,) = model_fn(messages, info).parts
+        yield {0: DeltaToolCall(name=part.tool_name, json_args=json.dumps(part.args))}
+
+    catalog = CatalogService(
+        [Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")]
+    )
+    pricing = PricingService({})
+    chat = _service(
+        FunctionModel(model_fn, stream_function=stream_fn),
+        LoadoutDeps(catalog=catalog, pricing=pricing, lore=None),
+    )
+    client = TestClient(create_app(catalog, pricing, None, chat))
+
+    history: list[dict] = []
+    for i in range(5):
+        r = client.post(
+            route, json={"message": f"turn {i}", "history": history}, headers=LLM_HEADERS
+        )
+        assert r.status_code == 200, (i, r.text[:200])
+        if route == "/chat":
+            body = r.json()
+        else:
+            body = next((e for e in _stream_lines(r) if e.get("kind") == "final"), None)
+            assert body is not None, (i, _stream_lines(r)[-1:])
+        history = body["history"]
+        assert 0 < len(history) <= MAX_HISTORY_MESSAGES
+        assert any(p["part_kind"] == "user-prompt" for p in history[0]["parts"])
 
 
 def test_conflicts_endpoint_flags_same_region():
