@@ -243,7 +243,7 @@ def build_agent(
         Args:
             used_by: Class name to restrict to, e.g. "Spy". Omit to search all classes.
             query: Space-separated keywords; items matching the most are returned first.
-            limit: Maximum items to return, at most 50.
+            limit: Maximum items to return, from 1 to 50 (values outside are clamped).
             max_ref: Keep only items priced at or under this many refined metal. Keys
                 convert automatically; items with no ref-comparable price (unpriced, or
                 priced in a currency with no metal exchange rate) are dropped rather

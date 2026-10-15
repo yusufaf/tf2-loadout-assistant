@@ -29,3 +29,13 @@ describe("decodeLoadout", () => {
     expect(decodeLoadout("not-base64!!")).toBeNull();
   });
 });
+
+describe("decodeLoadout defindex hygiene", () => {
+  it("drops non-integer, negative and oversized ids", () => {
+    const param = btoa(JSON.stringify({ c: "Spy", d: [1.5, -3, 0, 1e300, 7] }))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(decodeLoadout(param)?.defindexes).toEqual([7]);
+  });
+});

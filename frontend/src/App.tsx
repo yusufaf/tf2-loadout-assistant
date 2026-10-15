@@ -181,9 +181,12 @@ export default function App() {
     [cosmetics, filters, loadout, matrix, owned]
   );
 
+  const noteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   function flashNote(text: string) {
     setShareNote(text);
-    setTimeout(() => setShareNote(""), 2500);
+    // Restart the clock so an earlier note's timer can't blank a newer one early.
+    clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => setShareNote(""), 2500);
   }
 
   function equip(item: Cosmetic) {

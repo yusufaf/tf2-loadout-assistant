@@ -33,10 +33,9 @@ export function decodeLoadout(param: string): { cls: string; defindexes: number[
     // The class rides into every chat prompt, and the list drives one fetch per item:
     // a crafted link must not be able to set either to something unbounded.
     if (!CLASSES.includes(parsed.c)) return null;
-    const defindexes = [...new Set(parsed.d.filter((n) => typeof n === "number"))].slice(
-      0,
-      MAX_EQUIPPED
-    );
+    const defindexes = [
+      ...new Set(parsed.d.filter((n) => Number.isSafeInteger(n) && n > 0)),
+    ].slice(0, MAX_EQUIPPED);
     return { cls: parsed.c, defindexes };
   } catch {
     return null;
