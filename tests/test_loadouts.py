@@ -124,9 +124,9 @@ async def test_update_racing_delete_returns_none_without_creating_a_row(store, m
     async def stale_find_sk(steam_id, loadout_id):
         return sk
 
-    monkeypatch.setattr(store, "_find_sk", stale_find_sk)
-    assert await store.update("s1", created.id, name="x") is None
-    monkeypatch.undo()
+    with monkeypatch.context() as m:
+        m.setattr(store, "_find_sk", stale_find_sk)
+        assert await store.update("s1", created.id, name="x") is None
     assert await store.list("s1") == []
 
 
