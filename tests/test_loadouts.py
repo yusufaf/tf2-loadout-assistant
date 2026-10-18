@@ -5,11 +5,13 @@ API" rule intact (CLAUDE.md), same story as the LLM's TestModel fixture.
 
 from __future__ import annotations
 
+import threading
+
 import boto3
 import pytest
 from moto import mock_aws
 
-from tf2_loadout.loadouts import DynamoLoadoutStore
+from tf2_loadout.loadouts import DynamoLoadoutStore, LoadoutStoreError
 
 TABLE_NAME = "tf2-loadout-test-main"
 REGION = "us-west-2"
@@ -32,6 +34,39 @@ def store():
             BillingMode="PAY_PER_REQUEST",
         )
         yield DynamoLoadoutStore(TABLE_NAME, region=REGION)
+
+
+def test_each_thread_gets_its_own_table(store):
+    assert store._table() is store._table()
+
+    other: list[object] = []
+    thread = threading.Thread(target=lambda: other.append(store._table()))
+    thread.start()
+    thread.join()
+    assert other[0] is not store._table()
+
+
+async def test_store_ops_build_the_table_on_the_worker_thread(store, monkeypatch):
+    seen: list[int] = []
+    real = store._table
+
+    def spy():
+        seen.append(threading.get_ident())
+        return real()
+
+    monkeypatch.setattr(store, "_table", spy)
+    await store.list("s1")
+    assert seen
+    assert threading.get_ident() not in seen
+
+
+async def test_dynamo_failure_raises_loadout_store_error():
+    with mock_aws():
+        s = DynamoLoadoutStore("missing", region=REGION)
+        with pytest.raises(LoadoutStoreError):
+            await s.list("s1")
+        with pytest.raises(LoadoutStoreError):
+            await s.create("s1", "A", "Spy", [1])
 
 
 async def test_create_returns_the_saved_loadout(store):
