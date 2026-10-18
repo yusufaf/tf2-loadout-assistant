@@ -30,6 +30,7 @@ from tf2_loadout.pricing import PricingService
 from pydantic_core import to_jsonable_python
 
 from tf2_loadout.api import (
+    MAX_COSMETIC_LOOKUP,
     MAX_HISTORY_CHARS,
     MAX_HISTORY_MESSAGES,
     MAX_MESSAGE_CHARS,
@@ -451,6 +452,22 @@ def test_chat_history_stays_within_caps_across_many_turns(route):
         history = body["history"]
         assert 0 < len(history) <= MAX_HISTORY_MESSAGES
         assert any(p["part_kind"] == "user-prompt" for p in history[0]["parts"])
+
+
+def test_cosmetics_lookup_returns_found_in_order_and_missing():
+    r = _client().post("/cosmetics/lookup", json={"defindexes": [3, 999, 1, 3]})
+    assert r.status_code == 200
+    body = r.json()
+    assert [c["defindex"] for c in body["items"]] == [3, 1]
+    assert body["missing"] == [999]
+    assert body["items"][1]["price"]["value"] == 5.0
+
+
+def test_cosmetics_lookup_caps_request_size():
+    r = _client().post(
+        "/cosmetics/lookup", json={"defindexes": [1] * (MAX_COSMETIC_LOOKUP + 1)}
+    )
+    assert r.status_code == 422
 
 
 def test_conflicts_endpoint_flags_same_region():

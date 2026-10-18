@@ -50,7 +50,7 @@ uv run tf2-loadout-api   # http://127.0.0.1:8000
 cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 ```
 
-The API serves `/cosmetics`, `/cosmetics/{defindex}`, `/equip-conflicts`,
+The API serves `/cosmetics`, `/cosmetics/{defindex}`, `/cosmetics/lookup`, `/equip-conflicts`,
 `/lore/{defindex}`, `/loadout/conflicts`, `/chat`, and `/healthz`. Chat is stateless —
 the client sends the transcript back with each turn.
 
