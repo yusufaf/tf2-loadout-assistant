@@ -123,12 +123,19 @@ class DynamoLoadoutStore:
 
     async def list(self, steam_id: str) -> list[SavedLoadout]:
         def query(table: Any) -> list[dict]:
-            resp = table.query(
-                KeyConditionExpression=(
+            kwargs: dict[str, Any] = {
+                "KeyConditionExpression": (
                     Key("PK").eq(_pk(steam_id)) & Key("SK").begins_with(_SK_PREFIX)
                 )
-            )
-            return resp.get("Items", [])
+            }
+            items: list[dict] = []
+            while True:
+                resp = table.query(**kwargs)
+                items.extend(resp.get("Items", []))
+                last_key = resp.get("LastEvaluatedKey")
+                if not last_key:
+                    return items
+                kwargs["ExclusiveStartKey"] = last_key
 
         loadouts: list[SavedLoadout] = []
         for item in await self._run(query):
@@ -164,8 +171,8 @@ class DynamoLoadoutStore:
 
     async def _find_sk(self, steam_id: str, loadout_id: str) -> str | None:
         """A loadout id alone isn't a full sort key (it also carries `createdAt`), so
-        update/delete look the item up by id first. A player's saved-loadout list is
-        small and never paginated, so a full Query here is cheap.
+        update/delete look the item up by id first. That scans the player's full
+        (paginated) list, which is cheap because the list is small.
         """
         for loadout in await self.list(steam_id):
             if loadout.id == loadout_id:
