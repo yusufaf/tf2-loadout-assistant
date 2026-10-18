@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from tf2_loadout.auth import SignedInUser
 from tf2_loadout.catalog import CatalogService
-from tf2_loadout.loadouts import SavedLoadout
+from tf2_loadout.loadouts import LoadoutStoreError, SavedLoadout
 from tf2_loadout.pricing import PricingService
 from tf2_loadout.api import create_app
 
@@ -73,6 +73,20 @@ class _StubLoadouts:
         return False
 
 
+class _FailingLoadouts:
+    async def list(self, steam_id):
+        raise LoadoutStoreError("boom secret")
+
+    async def create(self, steam_id, name, cls, defindexes):
+        raise LoadoutStoreError("boom secret")
+
+    async def update(self, steam_id, loadout_id, *, name=None, cls=None, defindexes=None):
+        raise LoadoutStoreError("boom secret")
+
+    async def delete(self, steam_id, loadout_id):
+        raise LoadoutStoreError("boom secret")
+
+
 def _client(auth=None, loadouts=None) -> TestClient:
     catalog = CatalogService([])
     pricing = PricingService({})
@@ -115,6 +129,42 @@ def test_401_when_signed_out():
     assert client.post("/me/loadouts", json={"name": "x", "cls": "Spy"}).status_code == 401
     assert client.patch("/me/loadouts/1", json={"name": "x"}).status_code == 401
     assert client.delete("/me/loadouts/1").status_code == 401
+
+
+def test_store_failure_is_a_clean_502():
+    client = _signed_in_client(loadouts=_FailingLoadouts())
+    responses = [
+        client.get("/me/loadouts"),
+        client.post("/me/loadouts", json={"name": "x", "cls": "Spy"}),
+        client.patch("/me/loadouts/id1", json={"name": "x"}),
+        client.delete("/me/loadouts/id1"),
+    ]
+    for r in responses:
+        assert r.status_code == 502
+        assert r.json() == {"detail": "loadouts storage error"}
+
+
+def test_oversize_name_is_rejected_with_422():
+    stub = _StubLoadouts([SavedLoadout("id1", "A", "Spy", (1,), 1000, 1000)])
+    client = _signed_in_client(loadouts=stub)
+
+    assert client.post("/me/loadouts", json={"name": "x" * 101, "cls": "Spy"}).status_code == 422
+    assert client.patch("/me/loadouts/id1", json={"name": "x" * 101}).status_code == 422
+    assert not [c for c in stub.calls if c[0] in ("create", "update")]
+
+
+def test_name_at_the_cap_is_accepted():
+    client = _signed_in_client(loadouts=_StubLoadouts())
+    assert client.post("/me/loadouts", json={"name": "x" * 100, "cls": "Spy"}).status_code == 201
+
+
+def test_unknown_class_is_rejected_with_422():
+    stub = _StubLoadouts([SavedLoadout("id1", "A", "Spy", (1,), 1000, 1000)])
+    client = _signed_in_client(loadouts=stub)
+
+    assert client.post("/me/loadouts", json={"name": "Test", "cls": "Civilian"}).status_code == 422
+    assert client.patch("/me/loadouts/id1", json={"cls": "Civilian"}).status_code == 422
+    assert client.patch("/me/loadouts/id1", json={"cls": "Scout"}).status_code == 200
 
 
 def test_healthz_reports_loadouts_availability():

@@ -11,20 +11,36 @@ aioboto3/aiobotocore: loadout CRUD is low-frequency, and aiobotocore pins botoco
 tightly enough to become a recurring resolver headache for a hobby app. boto3 also
 returns every number as ``Decimal`` on read -- ``defindexes`` is coerced back to
 plain ``int`` here so a ``Decimal`` never leaks past this module into the JSON API.
+
+boto3 resources aren't thread-safe and anyio runs each call on a pooled worker thread,
+so every worker gets its own Table (built from one shared, lock-guarded Session). Any
+boto3/botocore failure leaves this module as ``LoadoutStoreError``.
 """
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol, TypeVar
 
 import anyio
 import boto3
 from boto3.dynamodb.conditions import Key
+from botocore.exceptions import BotoCoreError, ClientError
+
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 _SK_PREFIX = "LOADOUT#"
+
+
+class LoadoutStoreError(Exception):
+    """DynamoDB failed (throttled, unreachable, misconfigured); the message is for logs, never the response."""
 
 
 @dataclass(frozen=True)
@@ -80,19 +96,56 @@ def _from_item(item: dict) -> SavedLoadout:
 
 class DynamoLoadoutStore:
     def __init__(self, table_name: str, *, region: str | None = None) -> None:
-        self._table = boto3.resource("dynamodb", region_name=region).Table(table_name)
+        self._table_name = table_name
+        self._session = boto3.session.Session(region_name=region)
+        self._session_lock = threading.Lock()
+        self._local = threading.local()
+
+    def _table(self) -> Any:
+        # Built from one shared Session (not thread-safe itself, hence the lock) because
+        # a fresh Session reloads the service model (~200-300 ms) while a warm one
+        # builds a resource in ~2 ms.
+        table = getattr(self._local, "table", None)
+        if table is None:
+            with self._session_lock:
+                table = self._session.resource("dynamodb").Table(self._table_name)
+            self._local.table = table
+        return table
+
+    async def _run(self, op: Callable[[Any], T]) -> T:
+        def call() -> T:
+            return op(self._table())
+
+        try:
+            return await anyio.to_thread.run_sync(call)
+        except (ClientError, BotoCoreError) as exc:
+            raise LoadoutStoreError(str(exc)) from exc
 
     async def list(self, steam_id: str) -> list[SavedLoadout]:
-        def query() -> list[dict]:
-            resp = self._table.query(
-                KeyConditionExpression=(
+        def query(table: Any) -> list[dict]:
+            kwargs: dict[str, Any] = {
+                "KeyConditionExpression": (
                     Key("PK").eq(_pk(steam_id)) & Key("SK").begins_with(_SK_PREFIX)
                 )
-            )
-            return resp.get("Items", [])
+            }
+            items: list[dict] = []
+            while True:
+                resp = table.query(**kwargs)
+                items.extend(resp.get("Items", []))
+                last_key = resp.get("LastEvaluatedKey")
+                if not last_key:
+                    return items
+                kwargs["ExclusiveStartKey"] = last_key
 
-        items = await anyio.to_thread.run_sync(query)
-        return [_from_item(i) for i in items]
+        loadouts: list[SavedLoadout] = []
+        for item in await self._run(query):
+            try:
+                loadouts.append(_from_item(item))
+            except (KeyError, TypeError, ValueError):
+                # A row left half-written (e.g. by an update that raced a delete) must
+                # not take the whole list down with it.
+                logger.warning("skipping malformed loadout row %s", item.get("SK"))
+        return loadouts
 
     async def create(
         self, steam_id: str, name: str, cls: str, defindexes: list[int]
@@ -110,16 +163,16 @@ class DynamoLoadoutStore:
             "updatedAt": now,
         }
 
-        def put() -> None:
-            self._table.put_item(Item=item)
+        def put(table: Any) -> None:
+            table.put_item(Item=item)
 
-        await anyio.to_thread.run_sync(put)
+        await self._run(put)
         return _from_item(item)
 
     async def _find_sk(self, steam_id: str, loadout_id: str) -> str | None:
         """A loadout id alone isn't a full sort key (it also carries `createdAt`), so
-        update/delete look the item up by id first. A player's saved-loadout list is
-        small and never paginated, so a full Query here is cheap.
+        update/delete look the item up by id first. That scans the player's full
+        (paginated) list, which is cheap because the list is small.
         """
         for loadout in await self.list(steam_id):
             if loadout.id == loadout_id:
@@ -140,7 +193,7 @@ class DynamoLoadoutStore:
             return None
 
         now = int(time.time() * 1000)
-        names = {"#u": "updatedAt"}
+        names = {"#pk": "PK", "#u": "updatedAt"}
         values: dict[str, object] = {":u": now}
         sets = ["#u = :u"]
         if name is not None:
@@ -156,26 +209,34 @@ class DynamoLoadoutStore:
             values[":d"] = list(defindexes)
             sets.append("#d = :d")
 
-        def do_update() -> dict:
-            resp = self._table.update_item(
-                Key={"PK": _pk(steam_id), "SK": sk},
-                UpdateExpression="SET " + ", ".join(sets),
-                ExpressionAttributeNames=names,
-                ExpressionAttributeValues=values,
-                ReturnValues="ALL_NEW",
-            )
+        def do_update(table: Any) -> dict | None:
+            # UpdateItem is an upsert: without the condition, a delete landing between
+            # _find_sk and here would resurrect the row as a stub with no id.
+            try:
+                resp = table.update_item(
+                    Key={"PK": _pk(steam_id), "SK": sk},
+                    UpdateExpression="SET " + ", ".join(sets),
+                    ConditionExpression="attribute_exists(#pk)",
+                    ExpressionAttributeNames=names,
+                    ExpressionAttributeValues=values,
+                    ReturnValues="ALL_NEW",
+                )
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                    return None
+                raise
             return resp["Attributes"]
 
-        attrs = await anyio.to_thread.run_sync(do_update)
-        return _from_item(attrs)
+        attrs = await self._run(do_update)
+        return None if attrs is None else _from_item(attrs)
 
     async def delete(self, steam_id: str, loadout_id: str) -> bool:
         sk = await self._find_sk(steam_id, loadout_id)
         if sk is None:
             return False
 
-        def do_delete() -> None:
-            self._table.delete_item(Key={"PK": _pk(steam_id), "SK": sk})
+        def do_delete(table: Any) -> None:
+            table.delete_item(Key={"PK": _pk(steam_id), "SK": sk})
 
-        await anyio.to_thread.run_sync(do_delete)
+        await self._run(do_delete)
         return True

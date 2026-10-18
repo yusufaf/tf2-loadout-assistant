@@ -210,8 +210,9 @@ export default function App() {
   }
 
   function loadSaved(items: Cosmetic[], savedCls: string) {
-    // A saved class can be anything (an imported file, or the API, which doesn't check
-    // it); an unknown one would leak into the chat prefix, so keep the current class.
+    // A saved class can be anything (an imported file, or a row the API saved before it
+    // validated classes); an unknown one would leak into the chat prefix, so keep the
+    // current class.
     if (CLASSES.includes(savedCls)) setCls(savedCls);
     setLoadout(items.slice(0, MAX_EQUIPPED));
   }
