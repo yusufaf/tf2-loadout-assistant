@@ -144,6 +144,29 @@ def test_store_failure_is_a_clean_502():
         assert r.json() == {"detail": "loadouts storage error"}
 
 
+def test_oversize_name_is_rejected_with_422():
+    stub = _StubLoadouts([SavedLoadout("id1", "A", "Spy", (1,), 1000, 1000)])
+    client = _signed_in_client(loadouts=stub)
+
+    assert client.post("/me/loadouts", json={"name": "x" * 101, "cls": "Spy"}).status_code == 422
+    assert client.patch("/me/loadouts/id1", json={"name": "x" * 101}).status_code == 422
+    assert not [c for c in stub.calls if c[0] in ("create", "update")]
+
+
+def test_name_at_the_cap_is_accepted():
+    client = _signed_in_client(loadouts=_StubLoadouts())
+    assert client.post("/me/loadouts", json={"name": "x" * 100, "cls": "Spy"}).status_code == 201
+
+
+def test_unknown_class_is_rejected_with_422():
+    stub = _StubLoadouts([SavedLoadout("id1", "A", "Spy", (1,), 1000, 1000)])
+    client = _signed_in_client(loadouts=stub)
+
+    assert client.post("/me/loadouts", json={"name": "Test", "cls": "Civilian"}).status_code == 422
+    assert client.patch("/me/loadouts/id1", json={"cls": "Civilian"}).status_code == 422
+    assert client.patch("/me/loadouts/id1", json={"cls": "Scout"}).status_code == 200
+
+
 def test_healthz_reports_loadouts_availability():
     assert _client(auth=_StubAuth(), loadouts=None).get("/healthz").json()["loadouts"] is False
     assert _client(auth=_StubAuth(), loadouts=_StubLoadouts()).get("/healthz").json()["loadouts"] is True

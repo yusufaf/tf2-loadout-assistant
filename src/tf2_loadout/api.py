@@ -12,13 +12,14 @@ import secrets
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
+from typing import Annotated
 from urllib.parse import quote_from_bytes, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import AfterValidator, BaseModel, Field, ValidationError, field_validator
 from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
@@ -39,7 +40,7 @@ from tf2_loadout.agent import (
     turn_error,
 )
 from tf2_loadout.auth import SteamAuthError, SteamAuthService
-from tf2_loadout.catalog import CatalogService, load_defindex_names
+from tf2_loadout.catalog import ALL_CLASSES, CatalogService, load_defindex_names
 from tf2_loadout.config import (
     PROVIDERS,
     AuthSettings,
@@ -167,6 +168,10 @@ MAX_HISTORY_CHARS = 400_000
 # message needs more, and every character is billed to the player's own key.
 MAX_MESSAGE_CHARS = 2000
 
+# Far past any honest loadout name; a few huge ones would push a player's rows past
+# DynamoDB's 1 MB query page.
+MAX_LOADOUT_NAME_CHARS = 100
+
 
 def history_chars(entries: Sequence[dict]) -> int:
     """Serialized size of a transcript, the one measure both caps and trimming use."""
@@ -250,15 +255,27 @@ class LoadoutOut(BaseModel):
     updated_at: int
 
 
+def _known_class(value: str) -> str:
+    if value not in ALL_CLASSES:
+        raise ValueError("unknown class")
+    return value
+
+
+# Request-side only: LoadoutOut stays unconstrained so rows saved before these caps
+# existed still read.
+LoadoutName = Annotated[str, Field(max_length=MAX_LOADOUT_NAME_CHARS)]
+ClassName = Annotated[str, AfterValidator(_known_class)]
+
+
 class LoadoutCreate(BaseModel):
-    name: str
-    cls: str
+    name: LoadoutName
+    cls: ClassName
     defindexes: list[int] = Field(default_factory=list, max_length=MAX_EQUIPPED)
 
 
 class LoadoutPatch(BaseModel):
-    name: str | None = None
-    cls: str | None = None
+    name: LoadoutName | None = None
+    cls: ClassName | None = None
     defindexes: list[int] | None = Field(default=None, max_length=MAX_EQUIPPED)
 
 
