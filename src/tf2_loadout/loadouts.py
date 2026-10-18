@@ -130,8 +130,15 @@ class DynamoLoadoutStore:
             )
             return resp.get("Items", [])
 
-        items = await self._run(query)
-        return [_from_item(i) for i in items]
+        loadouts: list[SavedLoadout] = []
+        for item in await self._run(query):
+            try:
+                loadouts.append(_from_item(item))
+            except (KeyError, TypeError, ValueError):
+                # A row left half-written (e.g. by an update that raced a delete) must
+                # not take the whole list down with it.
+                logger.warning("skipping malformed loadout row %s", item.get("SK"))
+        return loadouts
 
     async def create(
         self, steam_id: str, name: str, cls: str, defindexes: list[int]
@@ -179,7 +186,7 @@ class DynamoLoadoutStore:
             return None
 
         now = int(time.time() * 1000)
-        names = {"#u": "updatedAt"}
+        names = {"#pk": "PK", "#u": "updatedAt"}
         values: dict[str, object] = {":u": now}
         sets = ["#u = :u"]
         if name is not None:
@@ -195,18 +202,26 @@ class DynamoLoadoutStore:
             values[":d"] = list(defindexes)
             sets.append("#d = :d")
 
-        def do_update(table: Any) -> dict:
-            resp = table.update_item(
-                Key={"PK": _pk(steam_id), "SK": sk},
-                UpdateExpression="SET " + ", ".join(sets),
-                ExpressionAttributeNames=names,
-                ExpressionAttributeValues=values,
-                ReturnValues="ALL_NEW",
-            )
+        def do_update(table: Any) -> dict | None:
+            # UpdateItem is an upsert: without the condition, a delete landing between
+            # _find_sk and here would resurrect the row as a stub with no id.
+            try:
+                resp = table.update_item(
+                    Key={"PK": _pk(steam_id), "SK": sk},
+                    UpdateExpression="SET " + ", ".join(sets),
+                    ConditionExpression="attribute_exists(#pk)",
+                    ExpressionAttributeNames=names,
+                    ExpressionAttributeValues=values,
+                    ReturnValues="ALL_NEW",
+                )
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                    return None
+                raise
             return resp["Attributes"]
 
         attrs = await self._run(do_update)
-        return _from_item(attrs)
+        return None if attrs is None else _from_item(attrs)
 
     async def delete(self, steam_id: str, loadout_id: str) -> bool:
         sk = await self._find_sk(steam_id, loadout_id)

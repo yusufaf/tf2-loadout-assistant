@@ -11,7 +11,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from tf2_loadout.loadouts import DynamoLoadoutStore, LoadoutStoreError
+from tf2_loadout.loadouts import DynamoLoadoutStore, LoadoutStoreError, _pk, _sk
 
 TABLE_NAME = "tf2-loadout-test-main"
 REGION = "us-west-2"
@@ -114,6 +114,27 @@ async def test_update_missing_loadout_returns_none(store):
 async def test_update_scoped_to_steam_id(store):
     created = await store.create("s1", "A", "Spy", [1])
     assert await store.update("s2", created.id, name="stolen") is None
+
+
+async def test_update_racing_delete_returns_none_without_creating_a_row(store, monkeypatch):
+    created = await store.create("s1", "A", "Spy", [1])
+    sk = await store._find_sk("s1", created.id)
+    await store.delete("s1", created.id)
+
+    async def stale_find_sk(steam_id, loadout_id):
+        return sk
+
+    monkeypatch.setattr(store, "_find_sk", stale_find_sk)
+    assert await store.update("s1", created.id, name="x") is None
+    monkeypatch.undo()
+    assert await store.list("s1") == []
+
+
+async def test_list_skips_malformed_rows(store):
+    valid = await store.create("s1", "A", "Spy", [1])
+    table = boto3.resource("dynamodb", region_name=REGION).Table(TABLE_NAME)
+    table.put_item(Item={"PK": _pk("s1"), "SK": _sk(1, "ghost"), "updatedAt": 1, "name": "x"})
+    assert [l.id for l in await store.list("s1")] == [valid.id]
 
 
 async def test_delete(store):
