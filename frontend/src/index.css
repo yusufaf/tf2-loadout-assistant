@@ -604,7 +604,7 @@ button {
   font-size: var(--t-base);
   box-shadow: var(--shadow-hard);
 }
-.save-btn:hover,
+.save-btn:hover:not(:disabled),
 .share-btn:hover {
   background: var(--gold);
 }
@@ -646,7 +646,8 @@ button {
   display: flex;
   gap: var(--s1);
 }
-.saved-io button {
+.saved-io button,
+.saved-note button {
   background: var(--paper);
   border: var(--bd);
   color: var(--ink);
@@ -656,12 +657,31 @@ button {
   letter-spacing: 0.04em;
   font-weight: 600;
 }
-.saved-io button:hover {
+.saved-io button:hover:not(:disabled),
+.saved-note button:hover {
   background: var(--paper-edge);
 }
-.saved-io button:focus-visible {
+.saved-io button:focus-visible,
+.saved-note button:focus-visible {
   outline: var(--focus);
   outline-offset: 2px;
+}
+.save-btn:disabled,
+.saved-io button:disabled,
+.saved-buttons button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Failures and import results from the saved-loadouts flow; errors use --stamp. */
+.saved-note {
+  margin: var(--s2) 0;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.saved-note.error {
+  color: var(--stamp);
 }
 
 .saved-list {
@@ -711,7 +731,7 @@ button {
   letter-spacing: 0.04em;
   font-weight: 600;
 }
-.saved-buttons button:hover {
+.saved-buttons button:hover:not(:disabled) {
   background: var(--gold);
 }
 .saved-buttons button:focus-visible {
@@ -721,9 +741,27 @@ button {
 .saved-buttons button.danger {
   color: var(--stamp);
 }
-.saved-buttons button.danger:hover {
+.saved-buttons button.danger:hover:not(:disabled) {
   background: var(--stamp);
   color: #fff;
+}
+
+/* ---- Crash screen (ErrorBoundary) ---- */
+.crash {
+  max-width: 32rem;
+  margin: var(--s6) auto;
+  padding: var(--s5);
+  background: var(--paper-lit);
+  border: var(--bd);
+  box-shadow: var(--shadow-hard);
+}
+.crash h1 {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  margin: 0 0 var(--s2);
+}
+.crash p {
+  margin: 0 0 var(--s3);
 }
 
 /* ---- Advisor chat ---- */

@@ -9,6 +9,7 @@ import {
   steamLoginUrl,
   signOut,
   fetchInventory,
+  lookupCosmetics,
   formatPrice,
   backpackUrl,
   type Cosmetic,
@@ -27,6 +28,7 @@ import { MAX_EQUIPPED, type ConflictMatrix } from "./conflicts";
 import { CLASSES } from "./classes";
 import FilterBar from "./FilterBar";
 import { useSavedLoadouts } from "./useSavedLoadouts";
+import { mergeFresh } from "./savedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
 import ChatPanel from "./ChatPanel";
 
@@ -57,8 +59,10 @@ export default function App() {
   const [me, setMe] = useState<Me>({ signed_in: false });
   const [authNote, setAuthNote] = useState("");
   const [inventory, setInventory] = useState<Inventory | null>(null);
-  const saved = useSavedLoadouts(me.signed_in);
+  const saved = useSavedLoadouts(me.signed_in && me.steam_id ? me.steam_id : null);
+  const savedLocked = saved.busy || saved.status !== "ready";
   const importRef = useRef<HTMLInputElement>(null);
+  const loadToken = useRef(0);
 
   // Hide the advisor entirely when the API has no LLM configured.
   useEffect(() => {
@@ -209,12 +213,31 @@ export default function App() {
     saved.save(name, cls, loadout);
   }
 
-  function loadSaved(items: Cosmetic[], savedCls: string) {
+  async function loadSaved(items: Cosmetic[], savedCls: string) {
+    const token = ++loadToken.current; // guards the notes below against a newer Load
     // A saved class can be anything (an imported file, or a row the API saved before it
     // validated classes); an unknown one would leak into the chat prefix, so keep the
     // current class.
     if (CLASSES.includes(savedCls)) setCls(savedCls);
-    setLoadout(items.slice(0, MAX_EQUIPPED));
+    // Show the saved copy at once, then swap in the catalog's current prices and images.
+    const shown = items.slice(0, MAX_EQUIPPED);
+    setLoadout(shown);
+    try {
+      const { items: fresh } = await lookupCosmetics(shown.map((c) => c.defindex));
+      const { items: merged, dropped } = mergeFresh(shown, fresh);
+      // Identity check: an equip/unequip, advisor equip, ?build= load or another Load
+      // since replaced the array, and the player's edit wins over the refresh.
+      setLoadout((cur) => (cur === shown ? merged : cur));
+      if (token === loadToken.current && dropped) {
+        flashNote(
+          `${dropped} item${dropped === 1 ? "" : "s"} in this loadout ${dropped === 1 ? "is" : "are"} no longer in the catalog.`
+        );
+      }
+    } catch {
+      if (token === loadToken.current) {
+        flashNote("Couldn't refresh prices — showing the saved copy.");
+      }
+    }
   }
 
   function renameSaved(id: string, current: string) {
@@ -259,7 +282,7 @@ export default function App() {
     file
       .text()
       .then((text) => saved.importJson(text))
-      .catch(() => window.alert("Couldn't import — not a valid TF2 loadouts file."));
+      .catch(() => flashNote("Couldn't read that file."));
   }
 
   return (
@@ -443,7 +466,7 @@ export default function App() {
               </a>
 
               <div className="loadout-actions">
-                <button className="save-btn" onClick={saveCurrent}>
+                <button className="save-btn" onClick={saveCurrent} disabled={savedLocked}>
                   Save loadout
                 </button>
                 <button
@@ -462,12 +485,17 @@ export default function App() {
             <div className="saved-head">
               <h3>Saved loadouts</h3>
               <div className="saved-io">
-                <button onClick={exportLoadouts} title="Download all as JSON">
+                <button
+                  onClick={exportLoadouts}
+                  title="Download all as JSON"
+                  disabled={savedLocked}
+                >
                   Export
                 </button>
                 <button
                   onClick={() => importRef.current?.click()}
                   title="Import from JSON"
+                  disabled={savedLocked}
                 >
                   Import
                 </button>
@@ -481,7 +509,26 @@ export default function App() {
               </div>
             </div>
 
-            {saved.loadouts.length === 0 ? (
+            {saved.message && (
+              <p
+                className={saved.message.kind === "error" ? "saved-note error" : "saved-note"}
+                role={saved.message.kind === "error" ? "alert" : "status"}
+              >
+                {saved.message.text}{" "}
+                <button onClick={saved.dismissMessage} aria-label="Dismiss">
+                  ✕
+                </button>
+              </p>
+            )}
+
+            {saved.status === "loading" ? (
+              <p className="status">Loading your saved loadouts…</p>
+            ) : saved.status === "error" ? (
+              <p className="saved-note error" role="alert">
+                Couldn't load the loadouts saved to your Steam account.{" "}
+                <button onClick={saved.retry}>Retry</button>
+              </p>
+            ) : saved.loadouts.length === 0 ? (
               <p className="empty">No saved loadouts yet.</p>
             ) : (
               <ul className="saved-list">
@@ -492,15 +539,22 @@ export default function App() {
                       <small>
                         {l.cls} · {l.items.length} item
                         {l.items.length === 1 ? "" : "s"}
+                        {l.unavailable ? ` · ${l.unavailable} unavailable` : ""}
                       </small>
                     </div>
                     <div className="saved-buttons">
                       <button onClick={() => loadSaved(l.items, l.cls)}>Load</button>
                       <button onClick={() => shareSaved(l.cls, l.items)}>Share</button>
-                      <button onClick={() => renameSaved(l.id, l.name)}>Rename</button>
+                      <button
+                        onClick={() => renameSaved(l.id, l.name)}
+                        disabled={savedLocked}
+                      >
+                        Rename
+                      </button>
                       <button
                         className="danger"
                         onClick={() => deleteSaved(l.id, l.name)}
+                        disabled={savedLocked}
                       >
                         Delete
                       </button>
