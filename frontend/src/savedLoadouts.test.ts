@@ -96,6 +96,16 @@ describe("parseCosmetic", () => {
     });
   });
 
+  it("keeps a price saved before value_high and ref_value existed", () => {
+    const old = { currency: "metal", value: 5 };
+    expect(parseCosmetic({ ...cosmetic(1), price: old })?.price).toEqual({
+      currency: "metal",
+      value: 5,
+      value_high: null,
+      ref_value: null,
+    });
+  });
+
   it("drops a malformed price to null", () => {
     expect(parseCosmetic({ ...cosmetic(1), price: { currency: "metal", value: "5" } })?.price).toBeNull();
     expect(parseCosmetic({ ...cosmetic(1), price: "cheap" })?.price).toBeNull();
@@ -210,6 +220,13 @@ describe("parseLoadoutList", () => {
     expect(p.loadouts[0].id).toBe("same");
     expect(p.loadouts[1].id).not.toBe("same");
     expect(p.invalid).toBe(0);
+  });
+
+  it("derives the same ids on every read, so a held id still matches after a re-read", () => {
+    const raw = [loadout("same", [cosmetic(1)], "A"), loadout("same", [cosmetic(2)], "B")];
+    const first = parseLoadoutList(raw).loadouts.map((l) => l.id);
+    const second = parseLoadoutList(raw).loadouts.map((l) => l.id);
+    expect(second).toEqual(first);
   });
 });
 

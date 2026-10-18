@@ -54,8 +54,12 @@ function isFiniteNumber(v: unknown): v is number {
 
 function parsePrice(v: unknown): Price | null {
   if (!isObject(v)) return null;
-  const { currency, value, value_high, ref_value } = v;
+  const { currency, value } = v;
   if (typeof currency !== "string" || !isFiniteNumber(value)) return null;
+  // Saves from before value_high / ref_value existed lack them; that's null, not a
+  // malformed price.
+  const value_high = v.value_high ?? null;
+  const ref_value = v.ref_value ?? null;
   if (value_high !== null && !isFiniteNumber(value_high)) return null;
   if (ref_value !== null && !isFiniteNumber(ref_value)) return null;
   return { currency, value, value_high, ref_value };
@@ -119,8 +123,10 @@ export interface ParsedLoadouts {
 }
 
 /** The one place that counts what a read repaired, shared by imports and stored data
- * so neither drops anything silently. A repeated id gets a fresh one (not counted --
- * nothing is lost), because `remove`/`rename` match by id and React keys on it. */
+ * so neither drops anything silently. A repeated id gets a derived one (not counted --
+ * nothing is lost), because `remove`/`rename` match by id and React keys on it. The
+ * derivation is deterministic: the UI holds the id from one read and `remove`/`rename`
+ * re-read storage, so a random id would never match on the second read. */
 export function parseLoadoutList(raw: unknown[], now = Date.now()): ParsedLoadouts {
   const loadouts: SavedLoadout[] = [];
   const ids = new Set<string>();
@@ -133,7 +139,8 @@ export function parseLoadoutList(raw: unknown[], now = Date.now()): ParsedLoadou
       continue;
     }
     droppedItems += (entry as { items: unknown[] }).items.length - parsed.items.length;
-    const id = ids.has(parsed.id) ? newId() : parsed.id;
+    let id = parsed.id;
+    for (let n = 2; ids.has(id); n++) id = `${parsed.id}~${n}`;
     ids.add(id);
     loadouts.push(id === parsed.id ? parsed : { ...parsed, id });
   }
