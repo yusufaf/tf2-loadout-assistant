@@ -116,7 +116,10 @@ def _signed_in_client(loadouts=None) -> TestClient:
 
 def test_503_when_loadouts_service_unconfigured():
     client = _signed_in_client(loadouts=None)
-    assert client.get("/me/loadouts").status_code == 503
+    listed = client.get("/me/loadouts")
+    assert listed.status_code == 503
+    # frontend/src/api.ts keys "not configured" off this exact detail string.
+    assert listed.json()["detail"] == "loadouts service unavailable"
     assert client.post("/me/loadouts", json={"name": "x", "cls": "Spy"}).status_code == 503
     assert client.patch("/me/loadouts/1", json={"name": "x"}).status_code == 503
     assert client.delete("/me/loadouts/1").status_code == 503

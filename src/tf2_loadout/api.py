@@ -153,6 +153,15 @@ class ConflictRequest(BaseModel):
     defindexes: list[int] = Field(max_length=MAX_EQUIPPED)
 
 
+# A player's saved-loadout list is unbounded, so the frontend splits a hydration lookup
+# into chunks of this size (frontend/src/api.ts mirrors the number).
+MAX_COSMETIC_LOOKUP = 500
+
+
+class CosmeticLookupRequest(BaseModel):
+    defindexes: list[int] = Field(max_length=MAX_COSMETIC_LOOKUP)
+
+
 # Chat is stateless: the client holds the transcript and sends it back each turn, which
 # keeps the server a pure function of its injected services -- like the rest of the app,
 # whose state already lives in localStorage. The cap stops a client blowing the context
@@ -461,6 +470,24 @@ def create_app(
         if cosmetic is None:
             raise HTTPException(status_code=404, detail="cosmetic not found")
         return to_out(cosmetic)
+
+    @app.post("/cosmetics/lookup")
+    def lookup_cosmetics(req: CosmeticLookupRequest) -> dict:
+        """Resolve many defindexes in one request.
+
+        Saved loadouts on a Steam account store only defindexes, so hydrating them
+        would otherwise be one ``GET /cosmetics/{defindex}`` per item. Unknown
+        defindexes come back in ``missing`` instead of failing the whole call.
+        """
+        items: list[CosmeticOut] = []
+        missing: list[int] = []
+        for defindex in dict.fromkeys(req.defindexes):
+            cosmetic = catalog.get(defindex)
+            if cosmetic is None:
+                missing.append(defindex)
+            else:
+                items.append(to_out(cosmetic))
+        return {"items": items, "missing": missing}
 
     @app.get("/lore/{defindex}")
     async def get_lore(defindex: int) -> dict:

@@ -57,6 +57,37 @@ export async function fetchCosmetic(defindex: number): Promise<Cosmetic> {
   return res.json();
 }
 
+/** Mirrors `MAX_COSMETIC_LOOKUP` in api.py: a bigger POST 422s, so lookups are chunked. */
+export const MAX_COSMETIC_LOOKUP = 500;
+
+/** Resolve many defindexes in one request per chunk. `missing` lists the ones the
+ * catalog doesn't have; a failed request throws rather than reading as "all missing". */
+export async function lookupCosmetics(
+  defindexes: number[]
+): Promise<{ items: Cosmetic[]; missing: number[] }> {
+  const unique = [...new Set(defindexes)];
+  if (unique.length === 0) return { items: [], missing: [] };
+  const chunks: number[][] = [];
+  for (let i = 0; i < unique.length; i += MAX_COSMETIC_LOOKUP) {
+    chunks.push(unique.slice(i, i + MAX_COSMETIC_LOOKUP));
+  }
+  const results = await Promise.all(
+    chunks.map(async (chunk) => {
+      const res = await fetch(`${BASE}/cosmetics/lookup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ defindexes: chunk }),
+      });
+      if (!res.ok) throw new Error(`lookup ${res.status}`);
+      return (await res.json()) as { items: Cosmetic[]; missing: number[] };
+    })
+  );
+  return {
+    items: results.flatMap((r) => r.items),
+    missing: results.flatMap((r) => r.missing),
+  };
+}
+
 export async function fetchConflicts(defindexes: number[]): Promise<Conflict[]> {
   if (defindexes.length < 2) return [];
   const res = await fetch(`${BASE}/loadout/conflicts`, {
@@ -187,13 +218,33 @@ export interface LoadoutRecord {
   updated_at: number;
 }
 
-/** null on any failure (signed out, unconfigured, network) -- the caller falls
- * back to the localStorage store either way, same "unavailable, not an error the
- * user must act on" story as `fetchInventory`. */
+/** The API is up but saved loadouts aren't configured on this deploy (503), so the
+ * caller keeps the localStorage store -- not an error the player needs to act on. */
+export class LoadoutsUnavailableError extends Error {}
+
+/** Throws `LoadoutsUnavailableError` on the "not configured" 503 (a deploy without
+ * DynamoDB, see .env.example); null on any other failure (signed out, network, a
+ * transient API error), which `remoteLoadouts.loadAll` turns into a thrown load
+ * failure the UI shows with a Retry. */
 export async function fetchLoadouts(): Promise<LoadoutRecord[] | null> {
+  let res: Response;
   try {
-    const res = await fetch(`${BASE}/me/loadouts`);
-    if (!res.ok) return null;
+    res = await fetch(`${BASE}/me/loadouts`);
+  } catch {
+    return null;
+  }
+  if (res.status === 503) {
+    // Matches api.py's /me/loadouts 503 detail. Any other 503 (say a proxy with no
+    // machine up) is a load failure, not a config signal -- otherwise a signed-in
+    // player's saves would silently land in localStorage.
+    const body = await res.json().catch(() => null);
+    if (body?.detail === "loadouts service unavailable") {
+      throw new LoadoutsUnavailableError("loadouts not configured");
+    }
+    return null;
+  }
+  if (!res.ok) return null;
+  try {
     return (await res.json()).loadouts;
   } catch {
     return null;
