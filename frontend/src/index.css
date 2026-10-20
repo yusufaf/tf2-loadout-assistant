@@ -647,7 +647,8 @@ button {
   gap: var(--s1);
 }
 .saved-io button,
-.saved-note button {
+.saved-note button,
+.share-note button {
   background: var(--paper);
   border: var(--bd);
   color: var(--ink);
@@ -658,11 +659,13 @@ button {
   font-weight: 600;
 }
 .saved-io button:hover:not(:disabled),
-.saved-note button:hover {
+.saved-note button:hover,
+.share-note button:hover {
   background: var(--paper-edge);
 }
 .saved-io button:focus-visible,
-.saved-note button:focus-visible {
+.saved-note button:focus-visible,
+.share-note button:focus-visible {
   outline: var(--focus);
   outline-offset: 2px;
 }

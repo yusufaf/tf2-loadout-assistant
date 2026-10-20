@@ -55,7 +55,7 @@ export default function App() {
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [matrix, setMatrix] = useState<ConflictMatrix>({});
-  const [shareNote, setShareNote] = useState("");
+  const [shareNote, setShareNote] = useState<{ text: string; sticky: boolean } | null>(null);
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
   const [authNote, setAuthNote] = useState("");
@@ -187,11 +187,14 @@ export default function App() {
   );
 
   const noteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  function flashNote(text: string) {
-    setShareNote(text);
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
+  // A sticky note stays until dismissed: a URL to copy by hand, or a note that fires on
+  // page load, would be gone before anyone read it.
+  function flashNote(text: string, sticky = false) {
+    setShareNote({ text, sticky });
     // Restart the clock so an earlier note's timer can't blank a newer one early.
     clearTimeout(noteTimer.current);
-    noteTimer.current = setTimeout(() => setShareNote(""), 2500);
+    if (!sticky) noteTimer.current = setTimeout(() => setShareNote(null), 2500);
   }
 
   function equip(item: Cosmetic) {
@@ -257,7 +260,7 @@ export default function App() {
       await navigator.clipboard.writeText(url);
       flashNote("Link copied!");
     } catch {
-      flashNote(url);
+      flashNote(`Couldn't copy. Here's the link: ${url}`, true);
     }
   }
 
@@ -480,7 +483,19 @@ export default function App() {
             </>
           )}
 
-          {shareNote && <p className="share-note">{shareNote}</p>}
+          {shareNote && (
+            <p className="share-note">
+              {shareNote.text}
+              {shareNote.sticky && (
+                <>
+                  {" "}
+                  <button onClick={() => setShareNote(null)} aria-label="Dismiss">
+                    ✕
+                  </button>
+                </>
+              )}
+            </p>
+          )}
 
           <section className="saved">
             <div className="saved-head">
