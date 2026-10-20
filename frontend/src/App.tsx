@@ -120,7 +120,9 @@ export default function App() {
     setSharedLoading(true);
     lookupCosmetics(decoded.defindexes)
       .then(({ items, missing }) => {
-        setLoadout(items);
+        // The tray starts empty, so anything in it now is an equip or Load made while
+        // this was in flight, and the player's edit wins over the link.
+        setLoadout((cur) => (cur.length === 0 ? items : cur));
         if (missing.length) {
           flashNote(
             `${missing.length} item${missing.length === 1 ? "" : "s"} from this link couldn't be found in the catalog.`,
@@ -197,13 +199,26 @@ export default function App() {
 
   const noteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(noteTimer.current), []);
+  const stickyNote = useRef<string | null>(null);
   // A sticky note stays until dismissed: a URL to copy by hand, or a note that fires on
   // page load, would be gone before anyone read it.
   function flashNote(text: string, sticky = false) {
     setShareNote({ text, sticky });
     // Restart the clock so an earlier note's timer can't blank a newer one early.
     clearTimeout(noteTimer.current);
-    if (!sticky) noteTimer.current = setTimeout(() => setShareNote(null), 2500);
+    if (sticky) {
+      stickyNote.current = text;
+      return;
+    }
+    // A passing note hands the slot back to any sticky note it covered.
+    noteTimer.current = setTimeout(() => {
+      const back = stickyNote.current;
+      setShareNote(back === null ? null : { text: back, sticky: true });
+    }, 2500);
+  }
+  function dismissNote() {
+    stickyNote.current = null;
+    setShareNote(null);
   }
 
   function equip(item: Cosmetic) {
@@ -500,7 +515,7 @@ export default function App() {
               {shareNote.sticky && (
                 <>
                   {" "}
-                  <button onClick={() => setShareNote(null)} aria-label="Dismiss">
+                  <button onClick={dismissNote} aria-label="Dismiss">
                     ✕
                   </button>
                 </>
