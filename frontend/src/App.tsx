@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   fetchCosmetics,
   fetchConflicts,
@@ -45,17 +45,28 @@ function priceTotals(items: Cosmetic[]): string {
     .join(" + ");
 }
 
+// The tray's initial value. Every edit makes a new array, so identity with this means
+// untouched, even when an edit has emptied the tray again.
+const NO_LOADOUT: Cosmetic[] = [];
+
 export default function App() {
   const [cls, setCls] = useState("Spy");
   const [query, setQuery] = useState("");
   const [cosmetics, setCosmetics] = useState<Cosmetic[]>([]);
   const [status, setStatus] = useState("Loading the backpack…");
-  const [loadout, setLoadout] = useState<Cosmetic[]>([]);
+  const [loadout, setLoadout] = useState<Cosmetic[]>(NO_LOADOUT);
+  // Layout, not passive: the ref updates in the same commit as an edit, so a lookup that
+  // resolves just after a click already sees it.
+  const loadoutRef = useRef(loadout);
+  useLayoutEffect(() => {
+    loadoutRef.current = loadout;
+  }, [loadout]);
   const [sharedLoading, setSharedLoading] = useState(false);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [matrix, setMatrix] = useState<ConflictMatrix>({});
-  const [shareNote, setShareNote] = useState<{ text: string; sticky: boolean } | null>(null);
+  const [shareNote, setShareNote] = useState("");
+  const [pinnedNotes, setPinnedNotes] = useState<string[]>([]);
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
   const [authNote, setAuthNote] = useState("");
@@ -113,24 +124,27 @@ export default function App() {
     history.replaceState(null, "", withoutParam(location, "build"));
     const decoded = decodeLoadout(param);
     if (!decoded) {
-      flashNote("That share link is broken or out of date.", true);
+      pinNote("That share link is broken or out of date.");
       return;
     }
     setCls(decoded.cls);
     setSharedLoading(true);
     lookupCosmetics(decoded.defindexes)
       .then(({ items, missing }) => {
-        // The tray starts empty, so anything in it now is an equip or Load made while
-        // this was in flight, and the player's edit wins over the link.
-        setLoadout((cur) => (cur.length === 0 ? items : cur));
+        // The player equipped, unequipped or loaded something while this was in flight, so
+        // their edit wins and the link's own notes no longer apply.
+        if (loadoutRef.current !== NO_LOADOUT) {
+          pinNote("Kept your changes. The shared loadout wasn't applied.");
+          return;
+        }
+        setLoadout(items);
         if (missing.length) {
-          flashNote(
-            `${missing.length} item${missing.length === 1 ? "" : "s"} from this link couldn't be found in the catalog.`,
-            true
+          pinNote(
+            `${missing.length} item${missing.length === 1 ? "" : "s"} from this link couldn't be found in the catalog.`
           );
         }
       })
-      .catch(() => flashNote("Couldn't load the shared loadout. Is the API running?", true))
+      .catch(() => pinNote("Couldn't load the shared loadout. Is the API running?"))
       .finally(() => setSharedLoading(false));
   }, []);
 
@@ -199,26 +213,20 @@ export default function App() {
 
   const noteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(noteTimer.current), []);
-  const stickyNote = useRef<string | null>(null);
-  // A sticky note stays until dismissed: a URL to copy by hand, or a note that fires on
-  // page load, would be gone before anyone read it.
-  function flashNote(text: string, sticky = false) {
-    setShareNote({ text, sticky });
+  // Passing notes share one slot and clear themselves. Pinned notes (a URL to copy by
+  // hand, or a note that fires on page load) each stay until dismissed, so a later
+  // passing note never covers one.
+  function flashNote(text: string) {
+    setShareNote(text);
     // Restart the clock so an earlier note's timer can't blank a newer one early.
     clearTimeout(noteTimer.current);
-    if (sticky) {
-      stickyNote.current = text;
-      return;
-    }
-    // A passing note hands the slot back to any sticky note it covered.
-    noteTimer.current = setTimeout(() => {
-      const back = stickyNote.current;
-      setShareNote(back === null ? null : { text: back, sticky: true });
-    }, 2500);
+    noteTimer.current = setTimeout(() => setShareNote(""), 2500);
   }
-  function dismissNote() {
-    stickyNote.current = null;
-    setShareNote(null);
+  function pinNote(text: string) {
+    setPinnedNotes((ns) => (ns.includes(text) ? ns : [...ns, text]));
+  }
+  function unpinNote(text: string) {
+    setPinnedNotes((ns) => ns.filter((n) => n !== text));
   }
 
   function equip(item: Cosmetic) {
@@ -253,8 +261,8 @@ export default function App() {
     try {
       const { items: fresh } = await lookupCosmetics(shown.map((c) => c.defindex));
       const { items: merged, dropped } = mergeFresh(shown, fresh);
-      // Identity check: an equip/unequip, advisor equip, ?build= load or another Load
-      // since replaced the array, and the player's edit wins over the refresh.
+      // Identity check: an equip/unequip, advisor equip or another Load since replaced
+      // the array, and the player's edit wins over the refresh.
       setLoadout((cur) => (cur === shown ? merged : cur));
       if (token === loadToken.current && dropped) {
         flashNote(
@@ -284,7 +292,7 @@ export default function App() {
       await navigator.clipboard.writeText(url);
       flashNote("Link copied!");
     } catch {
-      flashNote(`Couldn't copy. Here's the link: ${url}`, true);
+      pinNote(`Couldn't copy. Here's the link: ${url}`);
     }
   }
 
@@ -509,19 +517,15 @@ export default function App() {
             </>
           )}
 
-          {shareNote && (
-            <p className="share-note">
-              {shareNote.text}
-              {shareNote.sticky && (
-                <>
-                  {" "}
-                  <button onClick={dismissNote} aria-label="Dismiss">
-                    ✕
-                  </button>
-                </>
-              )}
+          {shareNote && <p className="share-note">{shareNote}</p>}
+          {pinnedNotes.map((text) => (
+            <p key={text} className="share-note">
+              {text}{" "}
+              <button onClick={() => unpinNote(text)} aria-label="Dismiss">
+                ✕
+              </button>
             </p>
-          )}
+          ))}
 
           <section className="saved">
             <div className="saved-head">
