@@ -30,6 +30,7 @@ import FilterBar from "./FilterBar";
 import { useSavedLoadouts } from "./useSavedLoadouts";
 import { mergeFresh } from "./savedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
+import { withoutParam } from "./urlParams";
 import ChatPanel from "./ChatPanel";
 
 function priceTotals(items: Cosmetic[]): string {
@@ -86,12 +87,12 @@ export default function App() {
     fetchInventory().then(setInventory);
   }, [me.signed_in]);
 
-  // Read ?auth=failed left by a rejected /auth/steam/return redirect, then strip it --
-  // must run before the ?build= effect below, which wipes every query param wholesale.
+  // Read ?auth=failed left by a rejected /auth/steam/return redirect, then strip it.
+  // Each URL effect strips only its own param, so their order doesn't matter.
   useEffect(() => {
     if (new URLSearchParams(location.search).get("auth") !== "failed") return;
     setAuthNote("Steam sign-in failed. Try again.");
-    history.replaceState(null, "", location.pathname);
+    history.replaceState(null, "", withoutParam(location, "auth"));
   }, []);
 
   // The conflict matrix is static, so fetch it once and filter locally afterwards. An
@@ -108,7 +109,7 @@ export default function App() {
     const param = new URLSearchParams(location.search).get("build");
     if (!param) return;
     const decoded = decodeLoadout(param);
-    history.replaceState(null, "", location.pathname);
+    history.replaceState(null, "", withoutParam(location, "build"));
     if (!decoded) return;
     setCls(decoded.cls);
     setStatus("Loading shared loadout…");
