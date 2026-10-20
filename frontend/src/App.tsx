@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchCosmetics,
-  fetchCosmetic,
   fetchConflicts,
   fetchConflictMatrix,
   fetchChatAvailable,
@@ -50,8 +49,9 @@ export default function App() {
   const [cls, setCls] = useState("Spy");
   const [query, setQuery] = useState("");
   const [cosmetics, setCosmetics] = useState<Cosmetic[]>([]);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState("Loading the backpack…");
   const [loadout, setLoadout] = useState<Cosmetic[]>([]);
+  const [sharedLoading, setSharedLoading] = useState(false);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [matrix, setMatrix] = useState<ConflictMatrix>({});
@@ -104,23 +104,32 @@ export default function App() {
       .catch(() => setMatrix({}));
   }, []);
 
-  // Load a shared build from ?build=... once on mount, then strip the param.
+  // Load a shared build from ?build=... once on mount, then strip the param. It tracks
+  // its own loading flag rather than `status`, which belongs to the cosmetics grid --
+  // sharing it let this effect blank the grid's loading message mid-fetch.
   useEffect(() => {
     const param = new URLSearchParams(location.search).get("build");
     if (!param) return;
-    const decoded = decodeLoadout(param);
     history.replaceState(null, "", withoutParam(location, "build"));
-    if (!decoded) return;
+    const decoded = decodeLoadout(param);
+    if (!decoded) {
+      flashNote("That share link is broken or out of date.", true);
+      return;
+    }
     setCls(decoded.cls);
-    setStatus("Loading shared loadout…");
-    Promise.all(
-      decoded.defindexes.map((d) => fetchCosmetic(d).catch(() => null))
-    )
-      .then((items) => {
-        setLoadout(items.filter((i): i is Cosmetic => i !== null));
-        setStatus("");
+    setSharedLoading(true);
+    lookupCosmetics(decoded.defindexes)
+      .then(({ items, missing }) => {
+        setLoadout(items);
+        if (missing.length) {
+          flashNote(
+            `${missing.length} item${missing.length === 1 ? "" : "s"} from this link couldn't be found in the catalog.`,
+            true
+          );
+        }
       })
-      .catch(() => setStatus(""));
+      .catch(() => flashNote("Couldn't load the shared loadout. Is the API running?", true))
+      .finally(() => setSharedLoading(false));
   }, []);
 
   // Load cosmetics whenever class or (debounced) query changes.
@@ -422,7 +431,9 @@ export default function App() {
           <h2>Loadout</h2>
           {loadout.length === 0 ? (
             <p className="empty">
-              Click a cosmetic to equip it. Conflicts get stamped here.
+              {sharedLoading
+                ? "Loading shared loadout…"
+                : "Click a cosmetic to equip it. Conflicts get stamped here."}
             </p>
           ) : (
             <>
