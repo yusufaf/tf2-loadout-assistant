@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   fetchCosmetics,
-  fetchCosmetic,
   fetchConflicts,
   fetchConflictMatrix,
   fetchChatAvailable,
@@ -30,6 +29,7 @@ import FilterBar from "./FilterBar";
 import { useSavedLoadouts } from "./useSavedLoadouts";
 import { mergeFresh } from "./savedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
+import { withoutParam } from "./urlParams";
 import ChatPanel from "./ChatPanel";
 
 function priceTotals(items: Cosmetic[]): string {
@@ -45,16 +45,28 @@ function priceTotals(items: Cosmetic[]): string {
     .join(" + ");
 }
 
+// The tray's initial value. Every edit makes a new array, so identity with this means
+// untouched, even when an edit has emptied the tray again.
+const NO_LOADOUT: Cosmetic[] = [];
+
 export default function App() {
   const [cls, setCls] = useState("Spy");
   const [query, setQuery] = useState("");
   const [cosmetics, setCosmetics] = useState<Cosmetic[]>([]);
-  const [status, setStatus] = useState("");
-  const [loadout, setLoadout] = useState<Cosmetic[]>([]);
+  const [status, setStatus] = useState("Loading the backpack…");
+  const [loadout, setLoadout] = useState<Cosmetic[]>(NO_LOADOUT);
+  // Layout, not passive: the ref updates in the same commit as an edit, so a lookup that
+  // resolves just after a click already sees it.
+  const loadoutRef = useRef(loadout);
+  useLayoutEffect(() => {
+    loadoutRef.current = loadout;
+  }, [loadout]);
+  const [sharedLoading, setSharedLoading] = useState(false);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [matrix, setMatrix] = useState<ConflictMatrix>({});
   const [shareNote, setShareNote] = useState("");
+  const [pinnedNotes, setPinnedNotes] = useState<string[]>([]);
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
   const [authNote, setAuthNote] = useState("");
@@ -86,12 +98,12 @@ export default function App() {
     fetchInventory().then(setInventory);
   }, [me.signed_in]);
 
-  // Read ?auth=failed left by a rejected /auth/steam/return redirect, then strip it --
-  // must run before the ?build= effect below, which wipes every query param wholesale.
+  // Read ?auth=failed left by a rejected /auth/steam/return redirect, then strip it.
+  // Each URL effect strips only its own param, so their order doesn't matter.
   useEffect(() => {
     if (new URLSearchParams(location.search).get("auth") !== "failed") return;
     setAuthNote("Steam sign-in failed. Try again.");
-    history.replaceState(null, "", location.pathname);
+    history.replaceState(null, "", withoutParam(location, "auth"));
   }, []);
 
   // The conflict matrix is static, so fetch it once and filter locally afterwards. An
@@ -103,23 +115,37 @@ export default function App() {
       .catch(() => setMatrix({}));
   }, []);
 
-  // Load a shared build from ?build=... once on mount, then strip the param.
+  // Load a shared build from ?build=... once on mount, then strip the param. It tracks
+  // its own loading flag rather than `status`, which belongs to the cosmetics grid --
+  // sharing it let this effect blank the grid's loading message mid-fetch.
   useEffect(() => {
     const param = new URLSearchParams(location.search).get("build");
     if (!param) return;
+    history.replaceState(null, "", withoutParam(location, "build"));
     const decoded = decodeLoadout(param);
-    history.replaceState(null, "", location.pathname);
-    if (!decoded) return;
+    if (!decoded) {
+      pinNote("That share link is broken or out of date.");
+      return;
+    }
     setCls(decoded.cls);
-    setStatus("Loading shared loadout…");
-    Promise.all(
-      decoded.defindexes.map((d) => fetchCosmetic(d).catch(() => null))
-    )
-      .then((items) => {
-        setLoadout(items.filter((i): i is Cosmetic => i !== null));
-        setStatus("");
+    setSharedLoading(true);
+    lookupCosmetics(decoded.defindexes)
+      .then(({ items, missing }) => {
+        // The player equipped, unequipped or loaded something while this was in flight, so
+        // their edit wins and the link's own notes no longer apply.
+        if (loadoutRef.current !== NO_LOADOUT) {
+          pinNote("Kept your changes. The shared loadout wasn't applied.");
+          return;
+        }
+        setLoadout(items);
+        if (missing.length) {
+          pinNote(
+            `${missing.length} item${missing.length === 1 ? "" : "s"} from this link couldn't be found in the catalog.`
+          );
+        }
       })
-      .catch(() => setStatus(""));
+      .catch(() => pinNote("Couldn't load the shared loadout. Is the API running?"))
+      .finally(() => setSharedLoading(false));
   }, []);
 
   // Load cosmetics whenever class or (debounced) query changes.
@@ -186,11 +212,21 @@ export default function App() {
   );
 
   const noteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
+  // Passing notes share one slot and clear themselves. Pinned notes (a URL to copy by
+  // hand, or a note that fires on page load) each stay until dismissed, so a later
+  // passing note never covers one.
   function flashNote(text: string) {
     setShareNote(text);
     // Restart the clock so an earlier note's timer can't blank a newer one early.
     clearTimeout(noteTimer.current);
     noteTimer.current = setTimeout(() => setShareNote(""), 2500);
+  }
+  function pinNote(text: string) {
+    setPinnedNotes((ns) => (ns.includes(text) ? ns : [...ns, text]));
+  }
+  function unpinNote(text: string) {
+    setPinnedNotes((ns) => ns.filter((n) => n !== text));
   }
 
   function equip(item: Cosmetic) {
@@ -225,8 +261,8 @@ export default function App() {
     try {
       const { items: fresh } = await lookupCosmetics(shown.map((c) => c.defindex));
       const { items: merged, dropped } = mergeFresh(shown, fresh);
-      // Identity check: an equip/unequip, advisor equip, ?build= load or another Load
-      // since replaced the array, and the player's edit wins over the refresh.
+      // Identity check: an equip/unequip, advisor equip or another Load since replaced
+      // the array, and the player's edit wins over the refresh.
       setLoadout((cur) => (cur === shown ? merged : cur));
       if (token === loadToken.current && dropped) {
         flashNote(
@@ -256,7 +292,7 @@ export default function App() {
       await navigator.clipboard.writeText(url);
       flashNote("Link copied!");
     } catch {
-      flashNote(url);
+      pinNote(`Couldn't copy. Here's the link: ${url}`);
     }
   }
 
@@ -418,7 +454,9 @@ export default function App() {
           <h2>Loadout</h2>
           {loadout.length === 0 ? (
             <p className="empty">
-              Click a cosmetic to equip it. Conflicts get stamped here.
+              {sharedLoading
+                ? "Loading shared loadout…"
+                : "Click a cosmetic to equip it. Conflicts get stamped here."}
             </p>
           ) : (
             <>
@@ -480,6 +518,14 @@ export default function App() {
           )}
 
           {shareNote && <p className="share-note">{shareNote}</p>}
+          {pinnedNotes.map((text) => (
+            <p key={text} className="share-note">
+              {text}{" "}
+              <button onClick={() => unpinNote(text)} aria-label="Dismiss">
+                ✕
+              </button>
+            </p>
+          ))}
 
           <section className="saved">
             <div className="saved-head">
