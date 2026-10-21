@@ -154,4 +154,9 @@ async def test_steam_unreachable_or_erroring_is_a_sign_in_failure(handler, caplo
         await client.verify(_good_params())
     # The cause proves the network step was reached, not an earlier param check.
     assert isinstance(exc_info.value.__cause__, httpx.HTTPError)
-    assert any(r.levelname == "WARNING" for r in caplog.records)
+    assert any(
+        r.name == "tf2_loadout.steam_auth"
+        and r.levelname == "WARNING"
+        and "check_authentication request failed" in r.getMessage()
+        for r in caplog.records
+    )

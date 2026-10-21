@@ -128,9 +128,10 @@ class SteamOpenID:
             resp = await self._client.post(OPENID_ENDPOINT, data=check_params)
             resp.raise_for_status()
         except httpx.HTTPError as exc:
-            # A Steam outage or timeout is a failed sign-in, not a server error. The
-            # route logs nothing for SteamAuthError, so this is the only outage signal.
-            logger.warning("Steam check_authentication request failed", exc_info=exc)
+            # A Steam outage or timeout is a failed sign-in, not a server error. Log it
+            # here, where it is still distinguishable from a forged callback; one line,
+            # not a traceback, since an outage repeats this on every attempt.
+            logger.warning("Steam check_authentication request failed: %r", exc)
             raise SteamAuthError("check_authentication request failed") from exc
         if "is_valid:true" not in resp.text.splitlines():
             raise SteamAuthError("Steam rejected check_authentication")
