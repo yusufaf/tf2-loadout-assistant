@@ -126,7 +126,8 @@ class CanonicalHostRedirect:
 MAX_REQUEST_BODY_BYTES = 1024 * 1024
 BODY_TOO_LARGE = "request body too large"
 # On a kept-alive connection uvicorn reads and discards whatever body is left after the
-# response, so a 413 alone caps memory but not how much a client can upload.
+# response, so a 413 alone bounds memory but not how much of the upload this server
+# reads. Copied per use: HTTPException keeps the dict it is given.
 CLOSE_CONNECTION = {"connection": "close"}
 
 
@@ -156,7 +157,7 @@ class RequestBodyLimit:
             declared = None
         if declared is not None and declared > self.max_bytes:
             response = JSONResponse(
-                {"detail": BODY_TOO_LARGE}, status_code=413, headers=CLOSE_CONNECTION
+                {"detail": BODY_TOO_LARGE}, status_code=413, headers=dict(CLOSE_CONNECTION)
             )
             await response(scope, receive, send)
             return
@@ -170,7 +171,7 @@ class RequestBodyLimit:
                 received += len(message.get("body", b""))
                 if received > self.max_bytes:
                     raise HTTPException(
-                        status_code=413, detail=BODY_TOO_LARGE, headers=CLOSE_CONNECTION
+                        status_code=413, detail=BODY_TOO_LARGE, headers=dict(CLOSE_CONNECTION)
                     )
             return message
 
