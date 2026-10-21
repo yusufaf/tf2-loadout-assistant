@@ -73,8 +73,8 @@ class InventoryService:
         cached = self._cache.get(steam_id)
         if cached and not refresh and self._fresh(cached):
             return cached
-        # A refresh joins an in-flight fetch too: that one started after the refresh
-        # was asked for's reason to doubt the cache, so it's already fresh.
+        # A refresh joins an in-flight fetch too: that fetch is asking Steam right now,
+        # so its answer is as fresh as a second call's would be.
         task = self._inflight.get(steam_id)
         if task is None:
             task = asyncio.create_task(self._load(steam_id))
