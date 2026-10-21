@@ -12,6 +12,7 @@ return URL passed through the user's browser and is forgeable.
 from __future__ import annotations
 
 import calendar
+import logging
 import re
 import time
 from urllib.parse import urlencode
@@ -23,6 +24,8 @@ from . import __version__
 OPENID_ENDPOINT = "https://steamcommunity.com/openid/login"
 USER_AGENT = f"tf2-loadout-assistant/{__version__}"
 DEFAULT_TIMEOUT = 30.0
+
+logger = logging.getLogger(__name__)
 
 # SteamID64 = 76561197960265728 + accountid. Accounts past ~294M carry the sum into
 # 765612..., so the id space is 76561[0-9]{12} -- NOT the narrower 7656119[0-9]{10},
@@ -125,7 +128,9 @@ class SteamOpenID:
             resp = await self._client.post(OPENID_ENDPOINT, data=check_params)
             resp.raise_for_status()
         except httpx.HTTPError as exc:
-            # A Steam outage or timeout is a failed sign-in, not a server error.
+            # A Steam outage or timeout is a failed sign-in, not a server error. The
+            # route logs nothing for SteamAuthError, so this is the only outage signal.
+            logger.warning("Steam check_authentication request failed", exc_info=exc)
             raise SteamAuthError("check_authentication request failed") from exc
         if "is_valid:true" not in resp.text.splitlines():
             raise SteamAuthError("Steam rejected check_authentication")

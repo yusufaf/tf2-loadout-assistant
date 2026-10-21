@@ -148,9 +148,10 @@ def _server_error(request: httpx.Request) -> httpx.Response:
     [_raise_timeout, _raise_connect_error, _server_error],
     ids=["timeout", "connect-error", "5xx"],
 )
-async def test_steam_unreachable_or_erroring_is_a_sign_in_failure(handler):
+async def test_steam_unreachable_or_erroring_is_a_sign_in_failure(handler, caplog):
     client = _client(transport=httpx.MockTransport(handler))
     with pytest.raises(SteamAuthError) as exc_info:
         await client.verify(_good_params())
     # The cause proves the network step was reached, not an earlier param check.
     assert isinstance(exc_info.value.__cause__, httpx.HTTPError)
+    assert any(r.levelname == "WARNING" for r in caplog.records)
