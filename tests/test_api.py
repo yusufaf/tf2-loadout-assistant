@@ -850,6 +850,7 @@ def test_body_limit_refuses_a_declared_oversize_without_reading_it():
     scope = _body_scope((b"content-length", b"11"))
     asyncio.run(RequestBodyLimit(unreachable, max_bytes=10)(scope, unread, send))
     assert sent[0]["status"] == 413
+    assert (b"connection", b"close") in sent[0]["headers"]
     assert json.loads(sent[1]["body"]) == {"detail": BODY_TOO_LARGE}
 
 
@@ -863,6 +864,7 @@ def test_body_limit_stops_reading_a_chunked_body_at_the_limit():
     with pytest.raises(HTTPException) as exc:
         asyncio.run(RequestBodyLimit(drain, max_bytes=10)(_body_scope(), receive, None))
     assert exc.value.status_code == 413
+    assert exc.value.headers == {"connection": "close"}
     assert len(calls) == 3  # 4 + 4 + 4 = 12 > 10
 
 
@@ -923,6 +925,8 @@ def test_oversized_body_is_413_before_any_handler_runs(route, chunked):
     )
     assert r.status_code == 413
     assert r.json() == {"detail": BODY_TOO_LARGE}
+    # Otherwise a keep-alive server reads and discards the rest of the upload.
+    assert r.headers["connection"] == "close"
     assert calls == []
     # Proves which path ran: the declared-length refusal or the byte count.
     assert ("content-length" in r.request.headers) is not chunked
