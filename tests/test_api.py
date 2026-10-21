@@ -8,6 +8,7 @@ import asyncio
 import json
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic_ai.messages import (
     ModelRequest,
@@ -30,13 +31,17 @@ from tf2_loadout.pricing import PricingService
 from pydantic_core import to_jsonable_python
 
 from tf2_loadout.api import (
+    BODY_TOO_LARGE,
     MAX_COSMETIC_LOOKUP,
     MAX_HISTORY_CHARS,
     MAX_HISTORY_MESSAGES,
     MAX_MESSAGE_CHARS,
+    MAX_REQUEST_BODY_BYTES,
     CanonicalHostRedirect,
+    RequestBodyLimit,
     create_app,
     fit_history,
+    history_chars,
 )
 from tf2_loadout.config import PROVIDERS
 from tf2_loadout.conflicts import MAX_EQUIPPED
@@ -806,3 +811,134 @@ def test_no_redirect_without_a_distinct_public_base_url():
             base_url="https://tf2-loadout-af.fly.dev",
         )
         assert client.get("/cosmetics", follow_redirects=False).status_code == 200
+
+
+async def _ok(scope, receive, send):
+    await send({"type": "http.response.start", "status": 200, "headers": []})
+    await send({"type": "http.response.body", "body": b""})
+
+
+def _chunks(*parts: bytes):
+    """A receive that hands out ``parts`` as one body, then counts any further calls."""
+    queue = list(parts)
+    calls = []
+
+    async def receive():
+        calls.append(1)
+        body = queue.pop(0)
+        return {"type": "http.request", "body": body, "more_body": bool(queue)}
+
+    return receive, calls
+
+
+def _body_scope(*headers: tuple[bytes, bytes]) -> dict:
+    return {"type": "http", "method": "POST", "path": "/chat", "headers": list(headers)}
+
+
+def test_body_limit_refuses_a_declared_oversize_without_reading_it():
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    async def unread():
+        raise AssertionError("an oversized body was read")
+
+    async def unreachable(scope, receive, send):
+        raise AssertionError("an oversized request reached the app")
+
+    scope = _body_scope((b"content-length", b"11"))
+    asyncio.run(RequestBodyLimit(unreachable, max_bytes=10)(scope, unread, send))
+    assert sent[0]["status"] == 413
+    assert json.loads(sent[1]["body"]) == {"detail": BODY_TOO_LARGE}
+
+
+def test_body_limit_stops_reading_a_chunked_body_at_the_limit():
+    receive, calls = _chunks(*[b"xxxx"] * 10)
+
+    async def drain(scope, receive, send):
+        while (await receive()).get("more_body"):
+            pass
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(RequestBodyLimit(drain, max_bytes=10)(_body_scope(), receive, None))
+    assert exc.value.status_code == 413
+    assert len(calls) == 3  # 4 + 4 + 4 = 12 > 10
+
+
+@pytest.mark.parametrize(
+    "headers", [(), ((b"content-length", b"10"),), ((b"content-length", b"abc"),)]
+)
+def test_body_limit_passes_a_body_of_exactly_the_limit(headers):
+    receive, _ = _chunks(b"xxxxx", b"xxxxx")
+    sent, body = [], []
+
+    async def send(message):
+        sent.append(message)
+
+    async def collect(scope, receive, send):
+        while True:
+            message = await receive()
+            body.append(message["body"])
+            if not message["more_body"]:
+                break
+        await _ok(scope, receive, send)
+
+    limit = RequestBodyLimit(collect, max_bytes=10)
+    asyncio.run(limit(_body_scope(*headers), receive, send))
+    assert b"".join(body) == b"x" * 10
+    assert sent[0]["status"] == 200
+
+
+def _counting_chat_client() -> tuple[TestClient, list]:
+    calls = []
+
+    def model_fn(messages, info):
+        calls.append(messages)
+        return ModelResponse(
+            parts=[ToolCallPart(info.output_tools[0].name, {"message": "hi"})]
+        )
+
+    catalog = CatalogService(
+        [Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")]
+    )
+    pricing = PricingService({})
+    chat = _service(
+        FunctionModel(model_fn), LoadoutDeps(catalog=catalog, pricing=pricing, lore=None)
+    )
+    return TestClient(create_app(catalog, pricing, None, chat)), calls
+
+
+@pytest.mark.parametrize("chunked", [False, True])
+@pytest.mark.parametrize(
+    "route", ["/chat", "/chat/stream", "/loadout/conflicts", "/me/loadouts"]
+)
+def test_oversized_body_is_413_before_any_handler_runs(route, chunked):
+    client, calls = _counting_chat_client()
+    body = b"x" * (MAX_REQUEST_BODY_BYTES + 1)
+    r = client.post(
+        route,
+        content=iter([body]) if chunked else body,
+        headers={**LLM_HEADERS, "content-type": "application/json"},
+    )
+    assert r.status_code == 413
+    assert r.json() == {"detail": BODY_TOO_LARGE}
+    assert calls == []
+    # Proves which path ran: the declared-length refusal or the byte count.
+    assert ("content-length" in r.request.headers) is not chunked
+
+
+def test_largest_valid_chat_request_fits_under_the_body_limit():
+    entry = {"content": ""}
+    entry["content"] = "x" * (MAX_HISTORY_CHARS - history_chars([entry]))
+    assert history_chars([entry]) == MAX_HISTORY_CHARS
+    payload = {
+        # Multi-byte, so the message's UTF-8 size is as large as its cap allows.
+        "message": "🎩" * MAX_MESSAGE_CHARS,
+        "history": [entry],
+        "equipped": [1] * MAX_EQUIPPED,
+    }
+    r = _client().post("/chat", json=payload, headers=LLM_HEADERS)
+    assert len(r.request.content) < MAX_REQUEST_BODY_BYTES
+    # Past the byte limit and ChatRequest validation; only the missing service stops it.
+    assert r.status_code == 503

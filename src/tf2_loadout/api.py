@@ -31,7 +31,7 @@ from pydantic_ai.messages import (
 from pydantic_core import to_jsonable_python
 from starlette.datastructures import Headers
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tf2_loadout.agent import (
     LoadoutAgentService,
@@ -118,6 +118,56 @@ class CanonicalHostRedirect:
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)
+
+
+# Pydantic's max_length checks run only after FastAPI has buffered and parsed the whole
+# body, so this bounds the read itself. The largest honest request -- a chat turn at
+# every cap below (MAX_HISTORY_CHARS of history plus a full message) -- is ~410 KB.
+MAX_REQUEST_BODY_BYTES = 1024 * 1024
+BODY_TOO_LARGE = "request body too large"
+
+
+class RequestBodyLimit:
+    """413 any request whose body passes ``max_bytes``, before a handler parses it.
+
+    A declared ``Content-Length`` over the limit is refused without reading the body or
+    calling the app. Otherwise (chunked, or a lying/malformed header) ``receive`` is
+    wrapped to count bytes and raise once the total passes the limit, so reading stops
+    at that chunk. It raises HTTPException rather than answering itself because the
+    read happens inside FastAPI's body parsing, which turns any other exception into a
+    400 but re-raises HTTPException for the exception handler. Plain ASGI for the same
+    reason as CanonicalHostRedirect.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int = MAX_REQUEST_BODY_BYTES) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        try:
+            declared = int(Headers(scope=scope).get("content-length"))
+        except (TypeError, ValueError):  # absent (None) or malformed: count instead
+            declared = None
+        if declared is not None and declared > self.max_bytes:
+            response = JSONResponse({"detail": BODY_TOO_LARGE}, status_code=413)
+            await response(scope, receive, send)
+            return
+
+        received = 0
+
+        async def limited_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    raise HTTPException(status_code=413, detail=BODY_TOO_LARGE)
+            return message
+
+        await self.app(scope, limited_receive, send)
 
 
 class PriceOut(BaseModel):
@@ -301,6 +351,9 @@ def create_app(
     public_base_url: str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="TF2 Loadout Assistant")
+    # Added first so it's innermost: its 413 passes through CORS and the session like
+    # any other error, and a wrong-host POST still gets the redirect first.
+    app.add_middleware(RequestBodyLimit)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
