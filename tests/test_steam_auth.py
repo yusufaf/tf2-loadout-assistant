@@ -129,3 +129,34 @@ async def test_malformed_nonce_is_rejected():
 async def test_failed_check_authentication_is_rejected():
     with pytest.raises(SteamAuthError):
         await _client(is_valid=False).verify(_good_params())
+
+
+def _raise_timeout(request: httpx.Request) -> httpx.Response:
+    raise httpx.ReadTimeout("timed out", request=request)
+
+
+def _raise_connect_error(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError("connection refused", request=request)
+
+
+def _server_error(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(503, text="Service Unavailable")
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [_raise_timeout, _raise_connect_error, _server_error],
+    ids=["timeout", "connect-error", "5xx"],
+)
+async def test_steam_unreachable_or_erroring_is_a_sign_in_failure(handler, caplog):
+    client = _client(transport=httpx.MockTransport(handler))
+    with pytest.raises(SteamAuthError) as exc_info:
+        await client.verify(_good_params())
+    # The cause proves the network step was reached, not an earlier param check.
+    assert isinstance(exc_info.value.__cause__, httpx.HTTPError)
+    assert any(
+        r.name == "tf2_loadout.steam_auth"
+        and r.levelname == "WARNING"
+        and "check_authentication request failed" in r.getMessage()
+        for r in caplog.records
+    )
