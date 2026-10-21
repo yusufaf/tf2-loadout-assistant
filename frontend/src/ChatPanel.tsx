@@ -183,7 +183,9 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
           err instanceof ChatUnavailableError
             ? "Chat is switched off on the server right now."
             : err instanceof RateLimitedError
-              ? "The advisor is busy -- too many messages at once or in a row. Wait a moment and try again."
+              ? err.retryAfterSeconds
+                ? `You're sending messages faster than the advisor allows. Try again in ${err.retryAfterSeconds} seconds.`
+                : "The advisor is busy with too many messages at once. Wait a moment and try again."
               : "The advisor didn't answer. Try again?"
         );
       }
