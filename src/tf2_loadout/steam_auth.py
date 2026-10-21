@@ -121,8 +121,12 @@ class SteamOpenID:
 
         check_params = dict(params)
         check_params["openid.mode"] = "check_authentication"
-        resp = await self._client.post(OPENID_ENDPOINT, data=check_params)
-        resp.raise_for_status()
+        try:
+            resp = await self._client.post(OPENID_ENDPOINT, data=check_params)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            # A Steam outage or timeout is a failed sign-in, not a server error.
+            raise SteamAuthError("check_authentication request failed") from exc
         if "is_valid:true" not in resp.text.splitlines():
             raise SteamAuthError("Steam rejected check_authentication")
 
