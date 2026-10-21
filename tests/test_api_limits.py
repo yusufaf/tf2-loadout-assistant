@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.messages import ModelResponse, ToolCallPart
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from tf2_loadout.agent import LoadoutAgentService, LoadoutDeps, build_agent
 from tf2_loadout.api import create_app
@@ -115,6 +116,15 @@ def test_chat_buckets_are_per_client_ip():
     assert _turn(client, **{"fly-client-ip": "1.1.1.1"}).status_code == 200
     assert _turn(client, **{"fly-client-ip": "1.1.1.1"}).status_code == 429
     assert _turn(client, **{"fly-client-ip": "2.2.2.2"}).status_code == 200
+
+
+def test_chat_never_keys_on_a_forged_x_forwarded_for_when_the_header_is_missing():
+    # Production's uvicorn config: proxy headers trusted from anywhere, so the scope's
+    # client becomes the leftmost X-Forwarded-For entry -- the client's own choice.
+    inner = _client(RateLimits(chat=RateLimiter(1, 60)), client_ip_header="fly-client-ip")
+    client = TestClient(ProxyHeadersMiddleware(inner.app, trusted_hosts="*"))
+    assert _turn(client, **{"x-forwarded-for": "1.1.1.1"}).status_code == 200
+    assert _turn(client, **{"x-forwarded-for": "2.2.2.2"}).status_code == 429
 
 
 def test_chat_ignores_a_client_ip_header_it_was_not_told_to_trust():
