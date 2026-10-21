@@ -107,15 +107,17 @@ def client_key(scope: Scope, trusted_header: str | None) -> str:
     """The limiter key for a request's client: its IP, or its IPv6 /64.
 
     ``trusted_header`` is read only when the caller knows the proxy sets it (on Fly);
-    otherwise the socket peer. One host usually controls a whole IPv6 /64, so keying
-    per address there would let it rotate through fresh buckets for free.
+    otherwise the socket peer. When it is trusted but missing, the request shares one
+    "unknown" key instead of using the peer, which behind the proxy is the forgeable
+    leftmost X-Forwarded-For entry. One host usually controls a whole IPv6 /64, so
+    keying per address there would let it rotate through fresh buckets for free.
     """
-    value = ""
     if trusted_header:
         value = (Headers(scope=scope).get(trusted_header) or "").split(",")[0].strip()
-    if not value:
+    else:
         client = scope.get("client")
-        value = client[0] if client else "unknown"
+        value = client[0] if client else ""
+    value = value or "unknown"
     try:
         ip = ipaddress.ip_address(value)
     except ValueError:

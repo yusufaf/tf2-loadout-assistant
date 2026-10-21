@@ -374,9 +374,14 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="TF2 Loadout Assistant")
     canonical = urlsplit(public_base_url) if public_base_url else None
-    allowed_origins = list(DEV_ORIGINS)
-    if canonical and canonical.hostname:
-        allowed_origins.append(f"{canonical.scheme}://{canonical.netloc}".lower())
+    canonical_origin = (
+        f"{canonical.scheme}://{canonical.netloc}" if canonical and canonical.hostname else None
+    )
+    # A production (https) deployment has no business accepting writes from a page
+    # that happens to be running on a visitor's localhost:5173.
+    allowed_origins = [] if canonical and canonical.scheme == "https" else list(DEV_ORIGINS)
+    if canonical_origin:
+        allowed_origins.append(canonical_origin)
     # Added first so it's innermost: its 413 passes through CORS and the session like
     # any other error, and a wrong-host POST still gets the redirect first.
     app.add_middleware(RequestBodyLimit)
@@ -408,11 +413,8 @@ def create_app(
         )
     # Added last so it's outermost: a redirect never touches the session. Skipped when
     # PUBLIC_BASE_URL is itself a redirected host, which would redirect to itself.
-    if canonical and canonical.hostname and canonical.hostname not in REDIRECTED_HOSTS:
-        app.add_middleware(
-            CanonicalHostRedirect,
-            canonical_origin=f"{canonical.scheme}://{canonical.netloc}",
-        )
+    if canonical_origin and canonical.hostname not in REDIRECTED_HOSTS:
+        app.add_middleware(CanonicalHostRedirect, canonical_origin=canonical_origin)
 
     def to_out(cosmetic: Cosmetic) -> CosmeticOut:
         price = pricing.get(cosmetic.defindex)

@@ -124,8 +124,10 @@ def test_client_key_ignores_header_when_not_trusted():
 
 
 @pytest.mark.parametrize("headers", [(), ((b"fly-client-ip", b""),)])
-def test_client_key_falls_back_when_header_absent_or_empty(headers):
-    assert client_key(_scope(*headers), "fly-client-ip") == "10.0.0.1"
+def test_client_key_never_falls_back_to_the_peer_when_the_header_is_trusted(headers):
+    # Behind the proxy, scope["client"] is the leftmost X-Forwarded-For entry, which
+    # the client picks; one shared key is safer than a forgeable one.
+    assert client_key(_scope(*headers), "fly-client-ip") == "unknown"
 
 
 def test_client_key_groups_ipv6_by_64():

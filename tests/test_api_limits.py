@@ -162,9 +162,21 @@ def test_cross_origin_loadout_write_is_403():
     assert client.delete("/me/loadouts/abc", headers=FOREIGN).status_code == 403
 
 
-def test_same_origin_public_and_dev_origin_writes_pass():
+def _conflicts(client: TestClient, origin: str) -> int:
+    return client.post(
+        "/loadout/conflicts", json={"defindexes": [1]}, headers={"Origin": origin}
+    ).status_code
+
+
+def test_same_origin_and_public_origin_writes_pass():
     client = _signed_in_client(public_base_url="https://tf2.yusufaf.dev")
-    for origin in ("http://testserver", "https://tf2.yusufaf.dev", "http://localhost:5173"):
-        r = client.post("/loadout/conflicts", json={"defindexes": [1]}, headers={"Origin": origin})
-        assert r.status_code == 200, origin
+    for origin in ("http://testserver", "https://tf2.yusufaf.dev"):
+        assert _conflicts(client, origin) == 200, origin
     assert client.post("/auth/logout", headers={"Origin": "http://testserver"}).status_code == 204
+
+
+def test_dev_origins_are_allowed_only_off_an_https_deployment():
+    assert _conflicts(_client(), "http://localhost:5173") == 200
+    assert _conflicts(_client(public_base_url="http://localhost:8000"), "http://127.0.0.1:5173") == 200
+    prod = _client(public_base_url="https://tf2.yusufaf.dev")
+    assert _conflicts(prod, "http://localhost:5173") == 403
