@@ -44,8 +44,12 @@ RUN uv sync --frozen --no-dev --no-install-package tf2-wiki-mcp
 # sibling checkout. If that version isn't released yet the build fails here, so
 # release tf2-wiki-mcp first. Unreleased sibling edits at the same version don't
 # reach prod. This must stay after the last `uv sync`, which is exact and would
-# uninstall it.
-RUN TF2_WIKI_MCP_VERSION="$(python -c 'import tomllib; print(next(p["version"] for p in tomllib.load(open("uv.lock", "rb"))["package"] if p["name"] == "tf2-wiki-mcp"))')"     && uv pip install --no-deps "tf2-wiki-mcp==${TF2_WIKI_MCP_VERSION}"     && rm -f .venv/.lock
+# uninstall it. --no-deps leaves its dependencies to the lock, so `uv pip check`
+# fails the build if the release needs something the lock didn't install.
+RUN TF2_WIKI_MCP_VERSION="$(python -c 'import tomllib; print(next(p["version"] for p in tomllib.load(open("uv.lock", "rb"))["package"] if p["name"] == "tf2-wiki-mcp"))')" \
+    && uv pip install --no-deps "tf2-wiki-mcp==${TF2_WIKI_MCP_VERSION}" \
+    && uv pip check \
+    && rm -f .venv/.lock
 
 # --- Stage 3: app files --------------------------------------------------------
 # Files from a Windows build context arrive world-writable, which would let the
@@ -59,10 +63,17 @@ COPY src/ src/
 # Cache is gitignored (see .gitignore) and there's no production refresh script
 # (CLAUDE.md: rebuild it with `uv run pytest --live`) -- boots from whatever
 # snapshot is baked in at build time. Re-run the live tests and rebuild the
-# image to refresh schema/pricing data.
+# image to refresh schema/pricing data. .cache/lore is left out (.dockerignore):
+# it's a runtime cache, so prod starts it empty rather than with the dev
+# machine's lookups.
 COPY .cache/ .cache/
 COPY --from=frontend-build /app/frontend/dist/ frontend/dist/
-RUN mkdir -p .cache/lore && chmod -R u=rwX,go=rX src .cache frontend
+# Compiled here because the runtime user can't write __pycache__ into src.
+# checked-hash, not the default timestamp check, so the .pyc stays valid
+# whatever mtime COPY --from gives the source.
+RUN python -m compileall -q --invalidation-mode checked-hash src \
+    && mkdir -p .cache/lore \
+    && chmod -R u=rwX,go=rX src .cache frontend
 
 # --- Stage 4: runtime ------------------------------------------------------------
 FROM python:3.12-slim AS runtime
@@ -73,7 +84,8 @@ COPY --from=python-build /app/.venv/ .venv/
 COPY --from=app-files /app/ ./
 # LoreService caches wiki lookups under .cache/lore at runtime (best-effort, lost
 # on restart). Everything else stays root-owned and read-only to the app user.
-RUN chown -R app:app .cache/lore
+# The directory is empty here, so this chown adds no file data to the layer.
+RUN chown app:app .cache/lore
 
 ENV PATH="/app/.venv/bin:$PATH"
 USER app

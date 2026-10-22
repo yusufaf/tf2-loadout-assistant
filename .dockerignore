@@ -11,5 +11,10 @@
 !frontend
 frontend/node_modules
 frontend/dist
+# Vite would load these into `pnpm build` and inline any VITE_* value into the
+# public bundle.
+frontend/.env*
+# A runtime cache; prod starts it empty (see Dockerfile).
+.cache/lore
 **/__pycache__
 **/*.py[cod]
