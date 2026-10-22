@@ -1,12 +1,15 @@
-.git
-.venv
-.pytest_cache
-__pycache__
-**/__pycache__
-tests
-docs
-Next-Work.txt
-.env
+# Allowlist: the build context is exactly what the Dockerfile COPYs, so a new
+# directory (cdk/node_modules, .claude/, ...) can't silently ride along into
+# every build. Add a `!` line when the Dockerfile starts COPYing something new.
+*
+!Dockerfile
+!pyproject.toml
+!uv.lock
+!README.md
+!src
+!.cache
+!frontend
 frontend/node_modules
 frontend/dist
-.playwright-mcp
+**/__pycache__
+**/*.py[cod]

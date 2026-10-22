@@ -23,7 +23,7 @@ uv run pytest --live                      # also runs tests that hit real APIs
 cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 ```
 
-`tf2-wiki-mcp` is an editable path dependency (`[tool.uv.sources]` → `../tf2-wiki-mcp`). That sibling repo must exist next to this one or `uv sync` fails. Changes to it are picked up live.
+`tf2-wiki-mcp` is an editable path dependency (`[tool.uv.sources]` → `../tf2-wiki-mcp`). That sibling repo must exist next to this one or `uv sync` fails. Changes to it are picked up live. The Docker image can't see the sibling, so it installs everything else with `uv sync --frozen` and `tf2-wiki-mcp` from PyPI at the exact version `uv.lock` records: publish that version to PyPI before you `fly deploy` a lock that bumps it (the build fails otherwise), and unreleased sibling edits that keep the same version never reach prod.
 
 ## Architecture
 
