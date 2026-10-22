@@ -84,8 +84,9 @@ COPY --from=python-build /app/.venv/ .venv/
 COPY --from=app-files /app/ ./
 # LoreService caches wiki lookups under .cache/lore at runtime (best-effort, lost
 # on restart). Everything else stays root-owned and read-only to the app user.
-# The directory is empty here, so this chown adds no file data to the layer.
-RUN chown app:app .cache/lore
+# Recursive so it stays right even if .dockerignore ever lets lore files in;
+# with the directory empty, as it is now, it adds no file data to the layer.
+RUN chown -R app:app .cache/lore
 
 ENV PATH="/app/.venv/bin:$PATH"
 USER app
