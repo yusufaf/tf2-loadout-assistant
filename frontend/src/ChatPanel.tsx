@@ -6,6 +6,7 @@ import {
   ChatUnavailableError,
   LlmKeyError,
   MAX_MESSAGE_CHARS,
+  RateLimitedError,
   type ChatProvider,
   type ChatStreamEvent,
   type Conflict,
@@ -181,7 +182,11 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
         setError(
           err instanceof ChatUnavailableError
             ? "Chat is switched off on the server right now."
-            : "The advisor didn't answer. Try again?"
+            : err instanceof RateLimitedError
+              ? err.retryAfterSeconds
+                ? `You're sending messages faster than the advisor allows. Try again in ${err.retryAfterSeconds} seconds.`
+                : "The advisor is busy with too many messages at once. Wait a moment and try again."
+              : "The advisor didn't answer. Try again?"
         );
       }
     } finally {

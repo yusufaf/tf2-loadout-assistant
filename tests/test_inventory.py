@@ -1,11 +1,13 @@
 """Resolving a raw backpack into the catalog's own defindex space.
 
 The Steam client is stubbed here -- ``test_steam_web.py`` covers the HTTP shape.
-This file is about status mapping, name-fallback resolution, and the TTL cache.
+This file is about status mapping, name-fallback resolution, the TTL cache, and
+in-flight coalescing.
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 import pytest
@@ -133,3 +135,110 @@ async def test_cache_expires_after_the_ttl(monkeypatch):
     monkeypatch.setattr(time, "time", lambda: real_time() + 2.0)
     await service.fetch(STEAM_ID)
     assert len(calls) == 2
+
+
+class _GatedClient:
+    """Holds every backpack call open until ``gate`` is set, counting the calls."""
+
+    def __init__(self, status: int = 1) -> None:
+        self.gate = asyncio.Event()
+        self.calls: list[str] = []
+        self.status = status
+
+    async def fetch_backpack(self, steam_id: str) -> dict:
+        self.calls.append(steam_id)
+        await self.gate.wait()
+        return {"status": self.status, "items": [{"defindex": 1}]}
+
+
+def _gated(status: int = 1, **kwargs) -> tuple[InventoryService, _GatedClient]:
+    client = _GatedClient(status)
+    return InventoryService(client, CATALOG, DEFINDEX_NAMES, **kwargs), client
+
+
+async def _open(service: InventoryService, n: int, **kwargs) -> list[asyncio.Task]:
+    tasks = [asyncio.create_task(service.fetch(STEAM_ID, **kwargs)) for _ in range(n)]
+    await asyncio.sleep(0)
+    return tasks
+
+
+async def test_concurrent_fetches_share_one_backpack_call():
+    service, client = _gated()
+    tasks = await _open(service, 3)
+    client.gate.set()
+    results = await asyncio.gather(*tasks)
+    assert len(client.calls) == 1
+    assert results[0] == results[1] == results[2]
+
+
+async def test_refresh_joins_an_inflight_fetch():
+    service, client = _gated()
+    tasks = await _open(service, 1)
+    tasks += await _open(service, 1, refresh=True)
+    client.gate.set()
+    await asyncio.gather(*tasks)
+    assert len(client.calls) == 1
+
+
+async def test_one_cancelled_caller_does_not_cancel_the_shared_fetch():
+    service, client = _gated()
+    leaving, staying = await _open(service, 2)
+    leaving.cancel()
+    await asyncio.sleep(0)
+    client.gate.set()
+    assert (await staying).status == "ok"
+    assert leaving.cancelled()
+    assert len(client.calls) == 1
+
+
+async def test_a_finished_fetch_is_not_joined_by_the_next_refresh():
+    service, client = _gated()
+    client.gate.set()
+    await service.fetch(STEAM_ID)
+    await service.fetch(STEAM_ID, refresh=True)
+    assert len(client.calls) == 2
+
+
+async def test_error_results_are_shared_but_not_cached():
+    service, client = _gated(status=0)
+    tasks = await _open(service, 2)
+    client.gate.set()
+    assert [r.status for r in await asyncio.gather(*tasks)] == ["error", "error"]
+    assert len(client.calls) == 1
+    await service.fetch(STEAM_ID)
+    assert len(client.calls) == 2
+
+
+def _counting(**kwargs) -> tuple[InventoryService, list[str]]:
+    calls: list[str] = []
+
+    def handler(sid):
+        calls.append(sid)
+        return {"status": 1, "items": [{"defindex": 1}]}
+
+    return _service(handler, **kwargs), calls
+
+
+async def test_cache_is_bounded_by_max_entries():
+    service, calls = _counting(max_entries=2)
+    for sid in ("a", "b", "c"):
+        await service.fetch(sid)
+    await service.fetch("c")
+    assert calls == ["a", "b", "c"]  # c still cached
+    await service.fetch("a")
+    assert calls == ["a", "b", "c", "a"]  # a was the oldest, so it went
+
+
+async def test_expired_entries_are_evicted_first(monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr(time, "time", lambda: clock[0])
+    service, calls = _counting(max_entries=2, ttl_seconds=600.0)
+    await service.fetch("b")
+    clock[0] = 0.0
+    await service.fetch("a")  # newest entry, but...
+    clock[0] = 1000.0  # ...now expired, while the older b is still fresh
+    await service.fetch("c")
+    await service.fetch("b")
+    assert calls == ["b", "a", "c"]  # b survived the eviction
+    await service.fetch("a")
+    assert calls == ["b", "a", "c", "a"]

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import os
 import secrets
 from collections.abc import Sequence
 from dataclasses import replace
@@ -61,6 +63,14 @@ from tf2_loadout.loadouts import (
 from tf2_loadout.lore import LoreService
 from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
+from tf2_loadout.ratelimit import (
+    FLY_CLIENT_IP_HEADER,
+    ChatConcurrencyLimit,
+    OriginCheck,
+    RateLimiter,
+    RateLimits,
+    client_key,
+)
 from tf2_loadout.steam_web import SteamWebClient
 
 logger = logging.getLogger(__name__)
@@ -78,6 +88,8 @@ LLM_KEY_HEADER = "X-LLM-API-Key"
 # PUBLIC_BASE_URL keeps search engines and shared links on one origin.
 REDIRECTED_HOSTS = frozenset({"tf2-loadout-af.fly.dev"})
 HEALTHZ_PATHS = frozenset({"/healthz", "/healthz/"})
+# The Vite dev server; in dev it proxies the API, so these arrive as Origin too.
+DEV_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 
 # RFC 3986 pchar beyond the unreserved set (which quote never escapes), plus "%" so an
 # escape the client already sent passes through instead of being encoded twice.
@@ -357,14 +369,34 @@ def create_app(
     inventory: InventoryService | None = None,
     loadouts: LoadoutStore | None = None,
     public_base_url: str | None = None,
+    limits: RateLimits | None = None,
+    client_ip_header: str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="TF2 Loadout Assistant")
+    canonical = urlsplit(public_base_url) if public_base_url else None
+    canonical_origin = (
+        f"{canonical.scheme}://{canonical.netloc}" if canonical and canonical.hostname else None
+    )
+    # A production (https) deployment has no business accepting writes from a page
+    # that happens to be running on a visitor's localhost:5173.
+    allowed_origins = [] if canonical and canonical.scheme == "https" else list(DEV_ORIGINS)
+    if canonical_origin:
+        allowed_origins.append(canonical_origin)
     # Added first so it's innermost: its 413 passes through CORS and the session like
     # any other error, and a wrong-host POST still gets the redirect first.
     app.add_middleware(RequestBodyLimit)
+    if limits is not None:
+        app.add_middleware(
+            ChatConcurrencyLimit,
+            limiter=limits.chat_concurrency,
+            client_ip_header=client_ip_header,
+        )
+    # Outside the concurrency cap so a forged request never takes a slot, and inside
+    # CORS so a dev-origin 403/429 still carries CORS headers.
+    app.add_middleware(OriginCheck, allowed_origins=allowed_origins)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_origins=list(DEV_ORIGINS),
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -381,12 +413,8 @@ def create_app(
         )
     # Added last so it's outermost: a redirect never touches the session. Skipped when
     # PUBLIC_BASE_URL is itself a redirected host, which would redirect to itself.
-    canonical = urlsplit(public_base_url) if public_base_url else None
-    if canonical and canonical.hostname and canonical.hostname not in REDIRECTED_HOSTS:
-        app.add_middleware(
-            CanonicalHostRedirect,
-            canonical_origin=f"{canonical.scheme}://{canonical.netloc}",
-        )
+    if canonical_origin and canonical.hostname not in REDIRECTED_HOSTS:
+        app.add_middleware(CanonicalHostRedirect, canonical_origin=canonical_origin)
 
     def to_out(cosmetic: Cosmetic) -> CosmeticOut:
         price = pricing.get(cosmetic.defindex)
@@ -455,6 +483,15 @@ def create_app(
             return None
         result = await inventory.fetch(steam_id)
         return result.defindexes if result.status == "ok" else None
+
+    def _throttle(limiter: RateLimiter | None, key: str) -> None:
+        wait = limiter.hit(key) if limiter is not None else None
+        if wait is not None:
+            raise HTTPException(
+                status_code=429,
+                detail="too many requests",
+                headers={"Retry-After": str(math.ceil(wait))},
+            )
 
     def _user_llm(request: Request) -> UserLLM:
         """The player's own provider + key, from the request headers.
@@ -551,7 +588,8 @@ def create_app(
         return {"items": items, "missing": missing}
 
     @app.get("/lore/{defindex}")
-    async def get_lore(defindex: int) -> dict:
+    async def get_lore(defindex: int, request: Request) -> dict:
+        _throttle(limits.lore if limits else None, client_key(request.scope, client_ip_header))
         cosmetic = catalog.get(defindex)
         if cosmetic is None:
             raise HTTPException(status_code=404, detail="cosmetic not found")
@@ -570,6 +608,8 @@ def create_app(
     async def chat_turn(req: ChatRequest, request: Request) -> ChatResponse:
         if chat is None:
             raise HTTPException(status_code=503, detail="chat service unavailable")
+        # Before the key check, so probing whether a key works (401 vs 200) is metered.
+        _throttle(limits.chat if limits else None, client_key(request.scope, client_ip_header))
         try:
             history = ModelMessagesTypeAdapter.validate_python(req.history)
         except ValidationError:
@@ -601,6 +641,8 @@ def create_app(
         """
         if chat is None:
             raise HTTPException(status_code=503, detail="chat service unavailable")
+        # Before the key check, so probing whether a key works (401 vs 200) is metered.
+        _throttle(limits.chat if limits else None, client_key(request.scope, client_ip_header))
         try:
             history = ModelMessagesTypeAdapter.validate_python(req.history)
         except ValidationError:
@@ -697,6 +739,10 @@ def create_app(
         steam_id = request.session.get("steam_id")
         if not steam_id:
             raise HTTPException(status_code=401, detail="sign in required")
+        # Per SteamID, not per IP: one session cookie works from any number of IPs,
+        # and the quota a refresh burns is the shared STEAM_API_KEY's.
+        if refresh:
+            _throttle(limits.inventory_refresh if limits else None, steam_id)
         result = await inventory.fetch(steam_id, refresh=refresh)
         return {
             "status": result.status,
@@ -839,6 +885,10 @@ def main() -> None:
         inventory=inventory,
         loadouts=loadouts,
         public_base_url=auth_settings.public_base_url,
+        limits=RateLimits(),
+        # Not request.client: with forwarded_allow_ips="*" uvicorn reports the leftmost
+        # X-Forwarded-For entry, which the client chose. Fly overwrites Fly-Client-IP.
+        client_ip_header=FLY_CLIENT_IP_HEADER if os.environ.get("FLY_APP_NAME") else None,
     )
     # 0.0.0.0, not 127.0.0.1: inside a container, Fly's proxy connects from
     # outside the container's network namespace and can't reach a loopback bind.

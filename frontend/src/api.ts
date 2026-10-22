@@ -115,6 +115,17 @@ export class ChatUnavailableError extends Error {}
  * one error the panel answers by reopening the key form. */
 export class LlmKeyError extends Error {}
 
+/** The server refused the turn as too frequent (429, with Retry-After), or too many
+ * turns were already in flight from this player or the whole site (429, without). */
+export class RateLimitedError extends Error {
+  readonly retryAfterSeconds: number | null;
+
+  constructor(retryAfterSeconds: number | null) {
+    super("rate limited");
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 export interface ChatProvider {
   id: string;
   label: string;
@@ -147,6 +158,10 @@ function chatHeaders(llm: LlmKey): Record<string, string> {
 function throwForChatStatus(res: Response): void {
   if (res.status === 503) throw new ChatUnavailableError("chat not configured");
   if (res.status === 401) throw new LlmKeyError("llm key rejected or missing");
+  if (res.status === 429) {
+    const retryAfter = Number(res.headers.get("retry-after"));
+    throw new RateLimitedError(retryAfter > 0 ? retryAfter : null);
+  }
   if (!res.ok) throw new Error(`chat ${res.status}`);
 }
 
