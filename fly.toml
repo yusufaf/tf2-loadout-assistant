@@ -1,6 +1,7 @@
 # tf2-loadout-assistant — single Fly app, stateless (no volume). The catalog
-# cache is baked into the image at build time (see Dockerfile); nothing is
-# written at runtime, so there's nothing to persist.
+# cache is baked into the image at build time (see Dockerfile); the only
+# runtime write is a best-effort lore cache under .cache/lore, so there's
+# nothing to persist.
 #
 # `app` below is a placeholder. Fly app names are globally unique across all
 # Fly users — run `fly apps create tf2-loadout-af` (or your own name) and
