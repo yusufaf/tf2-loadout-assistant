@@ -32,13 +32,6 @@ def pin_avatar_url(url: str | None) -> str | None:
     if host.startswith("avatars.") and host.endswith(".steamstatic.com"):
         return parts._replace(scheme="https", netloc=urlsplit(AVATAR_ORIGIN).netloc).geturl()
     return url
-    parts = urlsplit(url)
-    host = parts.hostname or ""
-    if host == "avatars.steamstatic.com" or (
-        host.startswith("avatars.") and host.endswith(".steamstatic.com")
-    ):
-        return AVATAR_ORIGIN + parts.path
-    return url
 
 
 class SteamWebClient:
