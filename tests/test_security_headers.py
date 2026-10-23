@@ -95,6 +95,16 @@ def test_a_header_the_app_set_is_kept():
     assert r.headers["content-security-policy"] == SECURITY_HEADERS["content-security-policy"]
 
 
+def test_a_response_start_without_headers_still_gets_them():
+    async def raw_app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 204})
+        await send({"type": "http.response.body", "body": b""})
+
+    r = TestClient(SecurityHeaders(raw_app)).get("/")
+    assert r.status_code == 204
+    _assert_security_headers(r.headers)
+
+
 def test_the_steam_sign_in_redirect_carries_the_headers():
     client = TestClient(_app(auth=_StubAuth(), session_secret="s", https_only=False))
     r = client.get("/auth/steam/login", follow_redirects=False)
@@ -194,6 +204,7 @@ class _PageScan(HTMLParser):
         self.scripts: list[str] = []
         self.stylesheets: list[str] = []
         self.same_origin_links: list[str] = []
+        self.preloads: list[str] = []
         self.inline_scripts = 0
         self.styled_tags: list[str] = []
 
@@ -207,11 +218,14 @@ class _PageScan(HTMLParser):
             else:
                 self.inline_scripts += 1
         elif tag == "link":
-            rel = (a.get("rel") or "").split()
+            rel = set((a.get("rel") or "").lower().split())
+            href = a.get("href") or ""
             if "stylesheet" in rel:
-                self.stylesheets.append(a["href"])
-            elif {"icon", "apple-touch-icon", "manifest"} & set(rel):
-                self.same_origin_links.append(a["href"])
+                self.stylesheets.append(href)
+            elif {"icon", "apple-touch-icon", "manifest"} & rel:
+                self.same_origin_links.append(href)
+            elif {"preload", "modulepreload", "prefetch"} & rel:
+                self.preloads.append(href)
 
 
 def _source(url: str) -> str:
@@ -231,5 +245,7 @@ def test_index_html_loads_only_allowlisted_origins(page):
     assert {_source(u) for u in scan.scripts} <= set(CSP_DIRECTIVES["script-src"])
     assert {_source(u) for u in scan.stylesheets} <= set(CSP_DIRECTIVES["style-src"])
     assert all(_source(u) == "'self'" for u in scan.same_origin_links)
+    # Vite emits these same-origin; a CDN one would need its own directive checked.
+    assert all(_source(u) == "'self'" for u in scan.preloads)
     assert scan.inline_scripts == 0
     assert scan.styled_tags == []

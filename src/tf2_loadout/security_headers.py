@@ -30,10 +30,11 @@ CSP_DIRECTIVES: dict[str, tuple[str, ...]] = {
         "'self'",
         # Item icons from the schema feed.
         "https://media.steampowered.com",
-        # Steam avatars. The older akamai host too, since a session cookie keeps the
-        # avatar URL it was issued with for 30 days.
+        # Steam avatars, which Steam serves from each of these CDN hosts. A session
+        # cookie keeps the avatar URL it was issued with for 30 days.
         "https://avatars.steamstatic.com",
         "https://avatars.akamai.steamstatic.com",
+        "https://avatars.fastly.steamstatic.com",
     ),
     # Umami's beacon is a fetch() to <script host>/api/e.
     "connect-src": ("'self'", ANALYTICS_ORIGIN),
@@ -70,6 +71,8 @@ class SecurityHeaders:
 
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
+                # headers is optional on this message in the ASGI spec.
+                message.setdefault("headers", [])
                 headers = MutableHeaders(scope=message)
                 for name, value in SECURITY_HEADERS.items():
                     headers.setdefault(name, value)
