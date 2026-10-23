@@ -52,7 +52,7 @@ def test_parses_a_cosmetic_into_a_cosmetic_model():
     assert cosmetic.equip_regions == frozenset({"hat"})
     assert cosmetic.used_by_classes == ("Scout", "Soldier", "Pyro")
     assert cosmetic.item_slot == "head"
-    assert cosmetic.image_url == HAT["image_url"]
+    assert cosmetic.image_url == "https://media.steampowered.com/apps/440/icons/modest_hat.png"
 
 
 def test_drops_items_with_no_equip_region():
@@ -246,3 +246,17 @@ def test_merge_keeps_medal_region_badges():
     [cosmetic] = merge_catalog([SCHEMA_DUELING_BADGE], {242: frozenset({"medal"})})
 
     assert cosmetic.used_by_classes == ALL_CLASSES
+
+
+def test_merge_upgrades_image_urls_to_https():
+    [cosmetic] = merge_catalog([SCHEMA_HAT], {116: frozenset({"hat"})})
+
+    assert cosmetic.image_url == "https://media/hat.png"
+
+
+def test_merge_keeps_a_missing_image_url_none():
+    raw = {k: v for k, v in SCHEMA_HAT.items() if k != "image_url"}
+
+    [cosmetic] = merge_catalog([raw], {116: frozenset({"hat"})})
+
+    assert cosmetic.image_url is None

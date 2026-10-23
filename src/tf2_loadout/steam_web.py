@@ -6,6 +6,8 @@ rebuilding the on-disk catalog cache. This one is called on every sign-in.
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 import httpx
 
 from . import __version__
@@ -14,6 +16,22 @@ PLAYER_SUMMARIES_URL = "https://api.steampowered.com/ISteamUser/GetPlayerSummari
 BACKPACK_URL = "https://api.steampowered.com/IEconItems_440/GetPlayerItems/v0001/"
 USER_AGENT = f"tf2-loadout-assistant/{__version__}"
 DEFAULT_TIMEOUT = 15.0
+AVATAR_ORIGIN = "https://avatars.steamstatic.com"
+
+
+def pin_avatar_url(url: str | None) -> str | None:
+    """Pin a Steam avatar to the one https host the CSP's img-src allows.
+
+    Steam hands out the same avatar path from several CDN hosts (fastly, akamai,
+    cloudflare, ...), sometimes over http. Any other host passes through unchanged.
+    """
+    if not url:
+        return url
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if host.startswith("avatars.") and host.endswith(".steamstatic.com"):
+        return parts._replace(scheme="https", netloc=urlsplit(AVATAR_ORIGIN).netloc).geturl()
+    return url
 
 
 class SteamWebClient:
@@ -63,7 +81,7 @@ class SteamWebClient:
         player = players[0]
         return {
             "persona": player.get("personaname"),
-            "avatar": player.get("avatarfull"),
+            "avatar": pin_avatar_url(player.get("avatarfull")),
             "profile_url": player.get("profileurl"),
         }
 

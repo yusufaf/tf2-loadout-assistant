@@ -59,9 +59,20 @@ describe("parseCosmetic", () => {
       paintable: true,
       styles: ["Red"],
       holiday_restriction: "halloween",
-      image_url: "http://x/y.png",
+      image_url: "https://x/y.png",
     });
     expect(parseCosmetic(c)).toEqual(c);
+  });
+
+  it("upgrades a stored http image_url to https", () => {
+    const c = cosmetic(7, { image_url: "http://media.steampowered.com/a.png" });
+    expect(parseCosmetic(c)?.image_url).toBe("https://media.steampowered.com/a.png");
+  });
+
+  it("leaves a non-http image_url alone", () => {
+    expect(parseCosmetic(cosmetic(7, { image_url: "/classes/spy.png" }))?.image_url).toBe(
+      "/classes/spy.png",
+    );
   });
 
   it("rejects a missing or non-array equip_regions", () => {

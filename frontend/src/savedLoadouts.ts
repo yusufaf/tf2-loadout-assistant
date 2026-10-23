@@ -80,7 +80,9 @@ export function parseCosmetic(v: unknown): Cosmetic | null {
     equip_regions: v.equip_regions,
     used_by_classes: isStringArray(v.used_by_classes) ? v.used_by_classes : [],
     item_slot: typeof v.item_slot === "string" ? v.item_slot : null,
-    image_url: typeof v.image_url === "string" ? v.image_url : null,
+    // Saves made before the CSP hold the schema's http:// icon URLs, and img-src is
+    // https-only (mirrors catalog._https).
+    image_url: typeof v.image_url === "string" ? v.image_url.replace(/^http:\/\//, "https://") : null,
     price: parsePrice(v.price),
     paintable: typeof v.paintable === "boolean" ? v.paintable : false,
     holiday_restriction: typeof v.holiday_restriction === "string" ? v.holiday_restriction : null,
