@@ -198,13 +198,21 @@ def test_a_schema_icon_url_is_allowed_by_img_src():
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 
 
+# Which directive governs a <link rel=preload as=...>; anything else falls to default-src.
+_PRELOAD_DIRECTIVES = {
+    "script": "script-src",
+    "style": "style-src",
+    "font": "font-src",
+    "image": "img-src",
+}
+
+
 class _PageScan(HTMLParser):
+    """Collects (directive, url) for every resource the page asks the browser to load."""
+
     def __init__(self) -> None:
         super().__init__()
-        self.scripts: list[str] = []
-        self.stylesheets: list[str] = []
-        self.same_origin_links: list[str] = []
-        self.preloads: list[str] = []
+        self.loads: list[tuple[str, str]] = []
         self.inline_scripts = 0
         self.styled_tags: list[str] = []
 
@@ -213,24 +221,31 @@ class _PageScan(HTMLParser):
         if "style" in a:
             self.styled_tags.append(tag)
         if tag == "script":
-            if a.get("src"):
-                self.scripts.append(a["src"])
+            if "src" in a:
+                self.loads.append(("script-src", a["src"] or ""))
             else:
                 self.inline_scripts += 1
+        elif tag == "img":
+            self.loads.append(("img-src", a.get("src") or ""))
         elif tag == "link":
             rel = set((a.get("rel") or "").lower().split())
             href = a.get("href") or ""
             if "stylesheet" in rel:
-                self.stylesheets.append(href)
-            elif {"icon", "apple-touch-icon", "manifest"} & rel:
-                self.same_origin_links.append(href)
-            elif {"preload", "modulepreload", "prefetch"} & rel:
-                self.preloads.append(href)
+                self.loads.append(("style-src", href))
+            elif {"icon", "apple-touch-icon"} & rel:
+                self.loads.append(("img-src", href))
+            elif "modulepreload" in rel:
+                self.loads.append(("script-src", href))
+            elif {"preload", "prefetch", "manifest"} & rel:
+                kind = (a.get("as") or "").lower()
+                self.loads.append((_PRELOAD_DIRECTIVES.get(kind, "default-src"), href))
 
 
 def _source(url: str) -> str:
-    """The CSP source a URL needs: 'self' for a relative URL, else its origin."""
-    return _origin(url) if urlsplit(url).scheme else "'self'"
+    """The CSP source a URL needs: 'self' for a same-origin URL, else its origin.
+    A protocol-relative URL is cross-origin too (https on the deployed page)."""
+    parts = urlsplit(url)
+    return f"{parts.scheme or 'https'}://{parts.netloc}" if parts.netloc else "'self'"
 
 
 @pytest.mark.parametrize("page", ["index.html", "dist/index.html"])
@@ -241,11 +256,27 @@ def test_index_html_loads_only_allowlisted_origins(page):
     scan = _PageScan()
     scan.feed(path.read_text(encoding="utf-8"))
 
-    assert scan.scripts
-    assert {_source(u) for u in scan.scripts} <= set(CSP_DIRECTIVES["script-src"])
-    assert {_source(u) for u in scan.stylesheets} <= set(CSP_DIRECTIVES["style-src"])
-    assert all(_source(u) == "'self'" for u in scan.same_origin_links)
-    # Vite emits these same-origin; a CDN one would need its own directive checked.
-    assert all(_source(u) == "'self'" for u in scan.preloads)
+    assert any(directive == "script-src" for directive, _ in scan.loads)
+    for directive, url in scan.loads:
+        assert url, f"empty URL for {directive}"
+        assert _source(url) in CSP_DIRECTIVES[directive], (directive, url)
     assert scan.inline_scripts == 0
     assert scan.styled_tags == []
+
+
+def test_the_page_scan_catches_what_the_policy_would_block():
+    scan = _PageScan()
+    scan.feed(
+        '<script src="//cdn.example.com/x.js"></script>'
+        '<link rel="Stylesheet" href="https://cdn.example.com/x.css">'
+        '<link rel="preload" as="font" href="https://fonts.gstatic.com/x.woff2">'
+        '<link rel="stylesheet">'
+    )
+    assert scan.loads == [
+        ("script-src", "//cdn.example.com/x.js"),
+        ("style-src", "https://cdn.example.com/x.css"),
+        ("font-src", "https://fonts.gstatic.com/x.woff2"),
+        ("style-src", ""),
+    ]
+    assert _source("//cdn.example.com/x.js") == "https://cdn.example.com"
+    assert _source("https://fonts.gstatic.com/x.woff2") in CSP_DIRECTIVES["font-src"]

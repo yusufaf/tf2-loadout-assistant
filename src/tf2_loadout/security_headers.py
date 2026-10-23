@@ -30,8 +30,9 @@ CSP_DIRECTIVES: dict[str, tuple[str, ...]] = {
         "'self'",
         # Item icons from the schema feed.
         "https://media.steampowered.com",
-        # Steam avatars, which Steam serves from each of these CDN hosts. A session
-        # cookie keeps the avatar URL it was issued with for 30 days.
+        # Steam avatars: steam_web pins new sign-ins to the first host. The other two
+        # stay because a session cookie keeps the avatar URL it was issued with for
+        # 30 days, and earlier sign-ins stored whichever CDN host Steam returned.
         "https://avatars.steamstatic.com",
         "https://avatars.akamai.steamstatic.com",
         "https://avatars.fastly.steamstatic.com",
@@ -67,7 +68,7 @@ class SecurityHeaders:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        https = scope["scheme"] == "https"
+        https = scope.get("scheme", "http") == "https"
 
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
