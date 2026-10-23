@@ -71,6 +71,7 @@ from tf2_loadout.ratelimit import (
     RateLimits,
     client_key,
 )
+from tf2_loadout.security_headers import SecurityHeaders
 from tf2_loadout.steam_web import SteamWebClient
 
 logger = logging.getLogger(__name__)
@@ -411,10 +412,13 @@ def create_app(
             https_only=https_only,
             max_age=30 * 24 * 3600,
         )
-    # Added last so it's outermost: a redirect never touches the session. Skipped when
-    # PUBLIC_BASE_URL is itself a redirected host, which would redirect to itself.
+    # Outside the session so a redirect never touches it. Skipped when PUBLIC_BASE_URL
+    # is itself a redirected host, which would redirect to itself.
     if canonical_origin and canonical.hostname not in REDIRECTED_HOSTS:
         app.add_middleware(CanonicalHostRedirect, canonical_origin=canonical_origin)
+    # Added last so it's outermost: redirects and every middleware's own 403/413/429
+    # carry the headers too.
+    app.add_middleware(SecurityHeaders)
 
     def to_out(cosmetic: Cosmetic) -> CosmeticOut:
         price = pricing.get(cosmetic.defindex)
