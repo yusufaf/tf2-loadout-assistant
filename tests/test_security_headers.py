@@ -9,15 +9,16 @@ only reach hosts the policy allows.
 from __future__ import annotations
 
 import json
+from urllib.parse import urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic_ai.models.test import TestModel
 
 from tf2_loadout.agent import LoadoutAgentService, LoadoutDeps, build_agent
-from tf2_loadout.api import create_app
+from tf2_loadout.api import CACHE_DIR, create_app
 from tf2_loadout.auth import SignedInUser
-from tf2_loadout.catalog import CatalogService
+from tf2_loadout.catalog import CatalogService, merge_catalog
 from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
 from tf2_loadout.security_headers import (
@@ -151,3 +152,32 @@ def test_an_unhandled_500_is_the_one_exemption():
     r = TestClient(app, raise_server_exceptions=False).get("/cosmetics/1")
     assert r.status_code == 500
     assert "content-security-policy" not in r.headers
+
+
+def _origin(url: str) -> str:
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+@pytest.mark.skipif(
+    not all((CACHE_DIR / f).exists() for f in ("schema_items.json", "equip.json")),
+    reason="no local catalog cache (rebuild with --live)",
+)
+def test_cached_catalog_images_are_allowed_by_img_src():
+    catalog = CatalogService.from_cache(CACHE_DIR)
+    origins = {_origin(c.image_url) for c in catalog.all() if c.image_url}
+    assert origins
+    assert origins <= set(CSP_DIRECTIVES["img-src"])
+
+
+def test_a_schema_icon_url_is_allowed_by_img_src():
+    """CI has no cache, so this runs the real feed's scheme and host through the merge."""
+    raw = {
+        "defindex": 116,
+        "item_class": "tf_wearable",
+        "item_name": "The Modest Pile of Hat",
+        "image_url": "http://media.steampowered.com/apps/440/icons/modest_hat.png",
+        "used_by_classes": ["Scout"],
+    }
+    [cosmetic] = merge_catalog([raw], {116: frozenset({"hat"})})
+    assert _origin(cosmetic.image_url) in CSP_DIRECTIVES["img-src"]

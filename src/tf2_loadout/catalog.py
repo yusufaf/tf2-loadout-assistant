@@ -46,6 +46,14 @@ def _equip_regions(raw: dict) -> frozenset[str]:
     return frozenset()
 
 
+def _https(url: str | None) -> str | None:
+    # The schema hands out http:// icon URLs. Steam serves the same files over https,
+    # and the CSP's img-src is https-only.
+    if url and url.startswith("http://"):
+        return "https://" + url[len("http://"):]
+    return url
+
+
 def _to_cosmetic(raw: dict) -> Cosmetic:
     return Cosmetic(
         defindex=raw["defindex"],
@@ -53,7 +61,7 @@ def _to_cosmetic(raw: dict) -> Cosmetic:
         equip_regions=_equip_regions(raw),
         used_by_classes=tuple(raw.get("used_by_classes", ())),
         item_slot=raw.get("item_slot"),
-        image_url=raw.get("image_url"),
+        image_url=_https(raw.get("image_url")),
     )
 
 
@@ -129,7 +137,7 @@ def merge_catalog(
                 equip_regions=regions,
                 used_by_classes=_used_by_classes(raw),
                 item_slot=raw.get("item_slot"),
-                image_url=raw.get("image_url"),
+                image_url=_https(raw.get("image_url")),
                 paintable=item_attrs.paintable,
                 holiday_restriction=item_attrs.holiday_restriction,
                 styles=_styles(raw),
