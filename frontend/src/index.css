@@ -1130,3 +1130,18 @@ button {
   opacity: 0.85;
   margin-top: var(--s0);
 }
+
+/* Shown only with JS off; inline style attributes would be blocked by the CSP. */
+.noscript {
+  max-width: 720px;
+  margin: 64px auto;
+  padding: 32px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  border: 2px solid var(--ink);
+}
+.noscript h1 {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}

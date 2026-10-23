@@ -9,6 +9,8 @@ only reach hosts the policy allows.
 from __future__ import annotations
 
 import json
+from html.parser import HTMLParser
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
@@ -181,3 +183,53 @@ def test_a_schema_icon_url_is_allowed_by_img_src():
     }
     [cosmetic] = merge_catalog([raw], {116: frozenset({"hat"})})
     assert _origin(cosmetic.image_url) in CSP_DIRECTIVES["img-src"]
+
+
+FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
+
+
+class _PageScan(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.scripts: list[str] = []
+        self.stylesheets: list[str] = []
+        self.same_origin_links: list[str] = []
+        self.inline_scripts = 0
+        self.styled_tags: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if "style" in a:
+            self.styled_tags.append(tag)
+        if tag == "script":
+            if a.get("src"):
+                self.scripts.append(a["src"])
+            else:
+                self.inline_scripts += 1
+        elif tag == "link":
+            rel = (a.get("rel") or "").split()
+            if "stylesheet" in rel:
+                self.stylesheets.append(a["href"])
+            elif {"icon", "apple-touch-icon", "manifest"} & set(rel):
+                self.same_origin_links.append(a["href"])
+
+
+def _source(url: str) -> str:
+    """The CSP source a URL needs: 'self' for a relative URL, else its origin."""
+    return _origin(url) if urlsplit(url).scheme else "'self'"
+
+
+@pytest.mark.parametrize("page", ["index.html", "dist/index.html"])
+def test_index_html_loads_only_allowlisted_origins(page):
+    path = FRONTEND / page
+    if not path.exists():
+        pytest.skip(f"{page} not built")
+    scan = _PageScan()
+    scan.feed(path.read_text(encoding="utf-8"))
+
+    assert scan.scripts
+    assert {_source(u) for u in scan.scripts} <= set(CSP_DIRECTIVES["script-src"])
+    assert {_source(u) for u in scan.stylesheets} <= set(CSP_DIRECTIVES["style-src"])
+    assert all(_source(u) == "'self'" for u in scan.same_origin_links)
+    assert scan.inline_scripts == 0
+    assert scan.styled_tags == []
