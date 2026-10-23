@@ -109,7 +109,7 @@ The app's tokens are deliberately not a 1:1 lift: `--paper` (`#e8dcc0`) reads wa
 
 ## Typography
 
-Two families, loaded from Google Fonts in `index.html` (no self-hosting, no `@font-face`):
+Two families, loaded from Google Fonts in `index.html` (no self-hosting, no `@font-face`). Both Google Fonts hosts are allowlisted in the CSP (`src/tf2_loadout/security_headers.py`); a font from anywhere else would be blocked:
 
 - **`--font-display`: Oswald** (500/600/700) — a condensed grotesque standing in for TF2's proprietary "TF2 Build" headline face. **TF2 Build and TF2 Secondary are Valve-licensed fonts and cannot be shipped in this app.** Do not hotlink or embed them; Oswald is the permanent substitute, not a placeholder.
 - **`--font-body`: Inter** (400/500/600) — all body copy, form inputs.
