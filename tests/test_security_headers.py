@@ -35,8 +35,11 @@ FEDORA = Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")
 
 
 class _StubAuth:
+    def __init__(self, avatar: str | None = None) -> None:
+        self.avatar = avatar
+
     async def complete_login(self, params):
-        return SignedInUser(steam_id="1", persona="Spy", avatar=None, profile_url=None)
+        return SignedInUser(steam_id="1", persona="Spy", avatar=self.avatar, profile_url=None)
 
     def login_url(self, state: str) -> str:
         return f"https://steamcommunity.com/openid/login?state={state}"
@@ -111,6 +114,24 @@ def test_the_steam_sign_in_redirect_carries_the_headers():
     assert r.status_code == 307
     assert r.headers["location"].startswith("https://steamcommunity.com/")
     _assert_security_headers(r.headers)
+
+
+def test_a_session_avatar_is_served_from_an_allowed_host():
+    """The cookie may hold whatever host Steam returned at sign-in (any session up to
+    30 days old predates the pinning), so /auth/me pins it on the way out."""
+    stored = "http://avatars.akamai.steamstatic.com/abc_full.jpg?t=1"
+    client = TestClient(_app(auth=_StubAuth(stored), session_secret="s", https_only=False))
+    login = client.get("/auth/steam/login", follow_redirects=False)
+    state = login.headers["location"].split("state=", 1)[1]
+    client.get(
+        "/auth/steam/return",
+        params={"state": state, "openid.mode": "id_res"},
+        follow_redirects=False,
+    )
+
+    avatar = client.get("/auth/me").json()["avatar"]
+    assert avatar == "https://avatars.steamstatic.com/abc_full.jpg?t=1"
+    assert _origin(avatar) in CSP_DIRECTIVES["img-src"]
 
 
 def test_the_canonical_host_redirect_carries_the_headers():
@@ -204,6 +225,7 @@ _PRELOAD_DIRECTIVES = {
     "style": "style-src",
     "font": "font-src",
     "image": "img-src",
+    "fetch": "connect-src",
 }
 
 
@@ -245,7 +267,10 @@ def _source(url: str) -> str:
     """The CSP source a URL needs: 'self' for a same-origin URL, else its origin.
     A protocol-relative URL is cross-origin too (https on the deployed page)."""
     parts = urlsplit(url)
-    return f"{parts.scheme or 'https'}://{parts.netloc}" if parts.netloc else "'self'"
+    if parts.netloc:
+        return f"{parts.scheme or 'https'}://{parts.netloc}"
+    # data:, blob: and friends are scheme sources, which the policy never lists.
+    return f"{parts.scheme}:" if parts.scheme else "'self'"
 
 
 @pytest.mark.parametrize("page", ["index.html", "dist/index.html"])
@@ -271,12 +296,15 @@ def test_the_page_scan_catches_what_the_policy_would_block():
         '<link rel="Stylesheet" href="https://cdn.example.com/x.css">'
         '<link rel="preload" as="font" href="https://fonts.gstatic.com/x.woff2">'
         '<link rel="stylesheet">'
+        '<link rel="preload" as="fetch" href="https://analytics.yusufaf.dev/api/e">'
     )
     assert scan.loads == [
         ("script-src", "//cdn.example.com/x.js"),
         ("style-src", "https://cdn.example.com/x.css"),
         ("font-src", "https://fonts.gstatic.com/x.woff2"),
         ("style-src", ""),
+        ("connect-src", "https://analytics.yusufaf.dev/api/e"),
     ]
+    assert _source("data:image/png;base64,AAAA") == "data:"
     assert _source("//cdn.example.com/x.js") == "https://cdn.example.com"
     assert _source("https://fonts.gstatic.com/x.woff2") in CSP_DIRECTIVES["font-src"]

@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from tf2_loadout.security_headers import CSP_DIRECTIVES
-from tf2_loadout.steam_web import SteamWebClient
+from tf2_loadout.steam_web import AVATAR_ORIGIN, SteamWebClient, pin_avatar_url
 
 STEAM_ID = "76561197960287930"
 
@@ -62,7 +62,14 @@ async def test_fetch_profile_pins_steam_avatars_to_one_https_host(avatar):
 
     profile = await _client(handler).fetch_profile(STEAM_ID)
     assert profile["avatar"] == "https://avatars.steamstatic.com/abc_full.jpg"
-    assert "https://avatars.steamstatic.com" in CSP_DIRECTIVES["img-src"]
+
+
+def test_pin_avatar_url_keeps_the_rest_of_the_url_and_other_hosts():
+    pinned = pin_avatar_url("http://avatars.fastly.steamstatic.com/abc_full.jpg?t=1")
+    assert pinned == "https://avatars.steamstatic.com/abc_full.jpg?t=1"
+    assert pin_avatar_url("https://example/avatar.jpg") == "https://example/avatar.jpg"
+    assert pin_avatar_url(None) is None
+    assert AVATAR_ORIGIN in CSP_DIRECTIVES["img-src"]
 
 
 async def test_fetch_profile_returns_none_when_no_player_found():

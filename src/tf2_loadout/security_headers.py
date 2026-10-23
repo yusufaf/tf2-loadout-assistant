@@ -30,12 +30,8 @@ CSP_DIRECTIVES: dict[str, tuple[str, ...]] = {
         "'self'",
         # Item icons from the schema feed.
         "https://media.steampowered.com",
-        # Steam avatars: steam_web pins new sign-ins to the first host. The other two
-        # stay because a session cookie keeps the avatar URL it was issued with for
-        # 30 days, and earlier sign-ins stored whichever CDN host Steam returned.
+        # Steam avatars, pinned to this one host by steam_web.pin_avatar_url.
         "https://avatars.steamstatic.com",
-        "https://avatars.akamai.steamstatic.com",
-        "https://avatars.fastly.steamstatic.com",
     ),
     # Umami's beacon is a fetch() to <script host>/api/e.
     "connect-src": ("'self'", ANALYTICS_ORIGIN),

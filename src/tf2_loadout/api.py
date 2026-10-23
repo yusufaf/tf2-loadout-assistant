@@ -72,7 +72,7 @@ from tf2_loadout.ratelimit import (
     client_key,
 )
 from tf2_loadout.security_headers import SecurityHeaders
-from tf2_loadout.steam_web import SteamWebClient
+from tf2_loadout.steam_web import SteamWebClient, pin_avatar_url
 
 logger = logging.getLogger(__name__)
 
@@ -726,7 +726,9 @@ def create_app(
             "signed_in": True,
             "steam_id": steam_id,
             "persona": request.session.get("persona"),
-            "avatar": request.session.get("avatar"),
+            # Pinned here too, not only at sign-in: a cookie issued before the CSP
+            # holds whichever CDN host Steam returned then.
+            "avatar": pin_avatar_url(request.session.get("avatar")),
         }
 
     @app.post("/auth/logout")

@@ -19,14 +19,19 @@ DEFAULT_TIMEOUT = 15.0
 AVATAR_ORIGIN = "https://avatars.steamstatic.com"
 
 
-def _avatar_url(url: str | None) -> str | None:
-    """Pin a Steam avatar to one https host the CSP's img-src allows.
+def pin_avatar_url(url: str | None) -> str | None:
+    """Pin a Steam avatar to the one https host the CSP's img-src allows.
 
     Steam hands out the same avatar path from several CDN hosts (fastly, akamai,
     cloudflare, ...), sometimes over http. Any other host passes through unchanged.
     """
     if not url:
         return url
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if host.startswith("avatars.") and host.endswith(".steamstatic.com"):
+        return parts._replace(scheme="https", netloc=urlsplit(AVATAR_ORIGIN).netloc).geturl()
+    return url
     parts = urlsplit(url)
     host = parts.hostname or ""
     if host == "avatars.steamstatic.com" or (
@@ -83,7 +88,7 @@ class SteamWebClient:
         player = players[0]
         return {
             "persona": player.get("personaname"),
-            "avatar": _avatar_url(player.get("avatarfull")),
+            "avatar": pin_avatar_url(player.get("avatarfull")),
             "profile_url": player.get("profileurl"),
         }
 
