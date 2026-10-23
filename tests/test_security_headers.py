@@ -1,9 +1,9 @@
 """Security headers and the CSP, wired through create_app.
 
-Covers that every kind of response carries the headers (routes, errors, redirects,
-the chat stream), that HSTS needs https, and that the policy stays strict. The
-index.html and catalog tests check the other side: that the page and the item icons
-only reach hosts the policy allows.
+Covers that every kind of response carries the headers (routes, errors, unhandled
+500s, redirects, the chat stream), that HSTS needs https, and that the policy stays
+strict. The index.html and catalog tests check the other side: that the page and
+the item icons only reach hosts the policy allows.
 """
 
 from __future__ import annotations
@@ -176,15 +176,16 @@ def test_the_policy_never_allows_inline_eval_or_wildcards():
     assert CSP_DIRECTIVES["base-uri"] == ("'none'",)
 
 
-def test_an_unhandled_500_is_the_one_exemption():
-    """Starlette's ServerErrorMiddleware sits outside every user middleware, so its
-    500 goes out without the headers. Its body is fixed plain text with nothing an
-    attacker controls. If this starts failing, the exemption is gone: delete this test
-    and the CLAUDE.md caveat."""
+def test_an_unhandled_500_carries_the_headers():
+    """ServerErrorMiddleware sits outside everything add_middleware registers, so
+    this only holds because create_app wraps the whole built stack."""
     app = create_app(_ExplodingCatalog([FEDORA]), PricingService({}))
-    r = TestClient(app, raise_server_exceptions=False).get("/cosmetics/1")
+    client = TestClient(app, base_url="https://testserver", raise_server_exceptions=False)
+    r = client.get("/cosmetics/1")
     assert r.status_code == 500
-    assert "content-security-policy" not in r.headers
+    assert r.text == "Internal Server Error"
+    _assert_security_headers(r.headers)
+    assert r.headers["strict-transport-security"] == HSTS
 
 
 def _origin(url: str) -> str:

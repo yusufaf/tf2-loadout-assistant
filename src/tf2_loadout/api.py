@@ -359,6 +359,19 @@ class LoadoutPatch(BaseModel):
     defindexes: list[int] | None = Field(default=None, max_length=MAX_EQUIPPED)
 
 
+class _SecuredFastAPI(FastAPI):
+    """FastAPI with ``SecurityHeaders`` wrapped around the whole built stack.
+
+    ``add_middleware`` can't put it outside ``ServerErrorMiddleware``, which
+    Starlette always makes outermost, so an unhandled exception's 500 would go
+    out bare. Wrapping here also puts it outside every ``add_middleware`` layer,
+    so redirects and their own 403/413/429s carry the headers too.
+    """
+
+    def build_middleware_stack(self) -> ASGIApp:
+        return SecurityHeaders(super().build_middleware_stack())
+
+
 def create_app(
     catalog: CatalogService,
     pricing: PricingService,
@@ -373,7 +386,7 @@ def create_app(
     limits: RateLimits | None = None,
     client_ip_header: str | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="TF2 Loadout Assistant")
+    app = _SecuredFastAPI(title="TF2 Loadout Assistant")
     canonical = urlsplit(public_base_url) if public_base_url else None
     canonical_origin = (
         f"{canonical.scheme}://{canonical.netloc}" if canonical and canonical.hostname else None
@@ -416,9 +429,6 @@ def create_app(
     # is itself a redirected host, which would redirect to itself.
     if canonical_origin and canonical.hostname not in REDIRECTED_HOSTS:
         app.add_middleware(CanonicalHostRedirect, canonical_origin=canonical_origin)
-    # Added last so it's outermost: redirects and every middleware's own 403/413/429
-    # carry the headers too.
-    app.add_middleware(SecurityHeaders)
 
     def to_out(cosmetic: Cosmetic) -> CosmeticOut:
         price = pricing.get(cosmetic.defindex)
