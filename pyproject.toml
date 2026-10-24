@@ -61,5 +61,5 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra"
 markers = [
-    "live: hits real external APIs (Steam schema, backpack.tf, LLM providers); skipped unless --live is passed",
+    "live: hits real external APIs (Steam schema, backpack.tf, TF2 wiki, LLM providers); skipped unless --live is passed",
 ]
