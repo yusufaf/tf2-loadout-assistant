@@ -13,6 +13,7 @@ import {
   MAX_TURNS,
   TRANSCRIPT_KEY,
   appendExchange,
+  clearTranscript,
   loadTranscript,
   parseTranscript,
   saveTranscript,
@@ -32,6 +33,9 @@ function fakeStorage(initial: Record<string, string> = {}) {
 }
 
 afterEach(() => vi.unstubAllGlobals());
+
+const A = "76561190000000001";
+const B = "76561190000000002";
 
 const HAT: Cosmetic = {
   defindex: 1,
@@ -155,32 +159,51 @@ describe("turnOutcome", () => {
 
 describe("parseTranscript", () => {
   it("round-trips through serializeTranscript", () => {
-    expect(parseTranscript(serializeTranscript(EXCHANGE))).toEqual(EXCHANGE);
+    expect(parseTranscript(serializeTranscript(EXCHANGE, A), A)).toEqual(EXCHANGE);
+    expect(parseTranscript(serializeTranscript(EXCHANGE, null), null)).toEqual(EXCHANGE);
   });
 
   it("returns empty for nothing stored, garbage, or the wrong version", () => {
-    expect(parseTranscript(null)).toEqual(EMPTY_TRANSCRIPT);
-    expect(parseTranscript("not json")).toEqual(EMPTY_TRANSCRIPT);
-    expect(parseTranscript(JSON.stringify({ version: 2, turns: [], history: [] }))).toEqual(
+    expect(parseTranscript(null, A)).toEqual(EMPTY_TRANSCRIPT);
+    expect(parseTranscript("not json", A)).toEqual(EMPTY_TRANSCRIPT);
+    expect(
+      parseTranscript(JSON.stringify({ version: 2, owner: A, turns: [], history: [] }), A)
+    ).toEqual(EMPTY_TRANSCRIPT);
+    expect(parseTranscript(JSON.stringify({ version: 1, owner: A, turns: [] }), A)).toEqual(
       EMPTY_TRANSCRIPT
     );
-    expect(parseTranscript(JSON.stringify({ version: 1, turns: [] }))).toEqual(
-      EMPTY_TRANSCRIPT
-    );
+  });
+
+  it("reads a transcript with no owner as empty", () => {
+    const raw = JSON.stringify({ version: 1, ...EXCHANGE });
+    expect(parseTranscript(raw, A)).toEqual(EMPTY_TRANSCRIPT);
+    expect(parseTranscript(raw, null)).toEqual(EMPTY_TRANSCRIPT);
+  });
+
+  it("hides a signed-in player's transcript from anyone else", () => {
+    const mine = serializeTranscript(EXCHANGE, A);
+    expect(parseTranscript(mine, B)).toEqual(EMPTY_TRANSCRIPT);
+    expect(parseTranscript(mine, null)).toEqual(EMPTY_TRANSCRIPT);
+  });
+
+  it("carries a signed-out transcript over on sign-in", () => {
+    expect(parseTranscript(serializeTranscript(EXCHANGE, null), A)).toEqual(EXCHANGE);
   });
 
   it("rejects the whole transcript if any turn is malformed", () => {
     const raw = JSON.stringify({
       version: 1,
+      owner: A,
       turns: [...EXCHANGE.turns, { role: "system", text: "x" }],
       history: [],
     });
-    expect(parseTranscript(raw)).toEqual(EMPTY_TRANSCRIPT);
+    expect(parseTranscript(raw, A)).toEqual(EMPTY_TRANSCRIPT);
   });
 
   it("drops an unknown class and malformed suggestions but keeps the turn", () => {
     const raw = JSON.stringify({
       version: 1,
+      owner: A,
       turns: [
         { role: "user", text: "q" },
         {
@@ -193,7 +216,7 @@ describe("parseTranscript", () => {
       ],
       history: [],
     });
-    expect(parseTranscript(raw).turns[1]).toEqual({
+    expect(parseTranscript(raw, A).turns[1]).toEqual({
       role: "bot",
       text: "a",
       suggestions: [HAT],
@@ -202,40 +225,73 @@ describe("parseTranscript", () => {
   });
 
   it("upgrades http suggestion images to https", () => {
-    const raw = serializeTranscript({
+    const insecure: Transcript = {
       turns: [
         { role: "user", text: "q" },
         { role: "bot", text: "a", suggestions: [{ ...HAT, image_url: "http://x/y.png" }] },
       ],
       history: [],
-    });
-    expect(parseTranscript(raw).turns[1].suggestions?.[0].image_url).toBe("https://x/y.png");
+    };
+    const raw = serializeTranscript(insecure, A);
+    expect(parseTranscript(raw, A).turns[1].suggestions?.[0].image_url).toBe("https://x/y.png");
   });
 });
 
 describe("localStorage wrappers", () => {
   it("save then load round-trips", () => {
     vi.stubGlobal("localStorage", fakeStorage());
-    saveTranscript(EXCHANGE);
-    expect(loadTranscript()).toEqual(EXCHANGE);
+    saveTranscript(EXCHANGE, A);
+    expect(loadTranscript(A)).toEqual(EXCHANGE);
+    expect(loadTranscript(B)).toEqual(EMPTY_TRANSCRIPT);
   });
 
-  it("saving an empty transcript removes the key", () => {
-    const storage = fakeStorage({ [TRANSCRIPT_KEY]: serializeTranscript(EXCHANGE) });
+  it("clearTranscript removes the key", () => {
+    const storage = fakeStorage({ [TRANSCRIPT_KEY]: serializeTranscript(EXCHANGE, A) });
     vi.stubGlobal("localStorage", storage);
-    saveTranscript(EMPTY_TRANSCRIPT);
+    clearTranscript();
     expect(storage.data.has(TRANSCRIPT_KEY)).toBe(false);
   });
 
+  it("saving an empty transcript removes the key", () => {
+    const storage = fakeStorage({ [TRANSCRIPT_KEY]: serializeTranscript(EXCHANGE, A) });
+    vi.stubGlobal("localStorage", storage);
+    saveTranscript(EMPTY_TRANSCRIPT, A);
+    expect(storage.data.has(TRANSCRIPT_KEY)).toBe(false);
+  });
+
+  it("saving empty as someone else leaves the stored transcript alone", () => {
+    const storage = fakeStorage({ [TRANSCRIPT_KEY]: serializeTranscript(EXCHANGE, A) });
+    vi.stubGlobal("localStorage", storage);
+    saveTranscript(EMPTY_TRANSCRIPT, null);
+    saveTranscript(EMPTY_TRANSCRIPT, B);
+    expect(loadTranscript(A)).toEqual(EXCHANGE);
+  });
+
+  it("saving empty after sign-in clears a carried-over signed-out transcript", () => {
+    const storage = fakeStorage({ [TRANSCRIPT_KEY]: serializeTranscript(EXCHANGE, null) });
+    vi.stubGlobal("localStorage", storage);
+    saveTranscript(EMPTY_TRANSCRIPT, A);
+    expect(storage.data.has(TRANSCRIPT_KEY)).toBe(false);
+  });
+
+  it("another identity's first exchange replaces the stored transcript", () => {
+    vi.stubGlobal("localStorage", fakeStorage());
+    saveTranscript(EXCHANGE, A);
+    const theirs = appendExchange(EMPTY_TRANSCRIPT, "q", { role: "bot", text: "a" }, []);
+    saveTranscript(theirs, B);
+    expect(loadTranscript(A)).toEqual(EMPTY_TRANSCRIPT);
+    expect(loadTranscript(B)).toEqual(theirs);
+  });
+
   it("a quota error removes the stale copy", () => {
-    const storage = fakeStorage({ [TRANSCRIPT_KEY]: serializeTranscript(EXCHANGE) });
+    const storage = fakeStorage({ [TRANSCRIPT_KEY]: serializeTranscript(EXCHANGE, A) });
     vi.stubGlobal("localStorage", {
       ...storage,
       setItem: () => {
         throw new DOMException("full", "QuotaExceededError");
       },
     });
-    saveTranscript(appendExchange(EXCHANGE, "q2", { role: "bot", text: "a2" }, []));
+    saveTranscript(appendExchange(EXCHANGE, "q2", { role: "bot", text: "a2" }, []), A);
     expect(storage.data.has(TRANSCRIPT_KEY)).toBe(false);
   });
 
@@ -245,6 +301,6 @@ describe("localStorage wrappers", () => {
         throw new Error("denied");
       },
     });
-    expect(loadTranscript()).toEqual(EMPTY_TRANSCRIPT);
+    expect(loadTranscript(A)).toEqual(EMPTY_TRANSCRIPT);
   });
 });

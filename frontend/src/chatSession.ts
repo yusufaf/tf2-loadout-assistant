@@ -11,6 +11,13 @@
  * versioned envelope, and every storage call wrapped so private mode or a full quota
  * degrades to "no saved conversation". It holds only what the server already saw;
  * the key is never in it.
+ *
+ * It does hold the advisor's tool results, which can list a player's backpack, so it is
+ * stamped with the SteamID it was saved under (null when signed out) and only that same
+ * identity reads it back. A signed-out conversation has no backpack in it, so signing
+ * in carries it over. One slot per browser: another identity sees an empty panel and
+ * leaves the stored copy alone until its own first exchange overwrites it, so a failed
+ * sign-in probe or an expired session can't delete a player's conversation.
  */
 
 import {
@@ -108,17 +115,22 @@ export function turnOutcome(r: {
 
 interface StoredTranscript {
   version: 1;
+  owner: string | null;
   turns: Turn[];
   history: unknown[];
 }
 
-export function serializeTranscript(t: Transcript): string {
-  const file: StoredTranscript = { version: 1, turns: t.turns, history: t.history };
+export function serializeTranscript(t: Transcript, owner: string | null): string {
+  const file: StoredTranscript = { version: 1, owner, turns: t.turns, history: t.history };
   return JSON.stringify(file);
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function readableBy(storedOwner: unknown, owner: string | null): boolean {
+  return storedOwner === owner || storedOwner === null;
 }
 
 function parseConflict(v: unknown): Conflict | null {
@@ -151,7 +163,7 @@ function parseTurn(v: unknown): Turn | null {
 
 /** All-or-nothing on structure: dropping one malformed turn would leave a question
  * without its reply. Lenient within a turn, like `savedLoadouts`' imports. */
-export function parseTranscript(raw: string | null): Transcript {
+export function parseTranscript(raw: string | null, owner: string | null): Transcript {
   if (!raw) return EMPTY_TRANSCRIPT;
   let parsed: unknown;
   try {
@@ -160,6 +172,7 @@ export function parseTranscript(raw: string | null): Transcript {
     return EMPTY_TRANSCRIPT;
   }
   if (!isObject(parsed) || parsed.version !== 1) return EMPTY_TRANSCRIPT;
+  if (!readableBy(parsed.owner, owner)) return EMPTY_TRANSCRIPT;
   if (!Array.isArray(parsed.history) || !Array.isArray(parsed.turns)) {
     return EMPTY_TRANSCRIPT;
   }
@@ -172,28 +185,52 @@ export function parseTranscript(raw: string | null): Transcript {
   return { turns: turns.slice(-MAX_TURNS), history: parsed.history };
 }
 
-export function loadTranscript(): Transcript {
+export function loadTranscript(owner: string | null): Transcript {
   try {
-    return parseTranscript(localStorage.getItem(TRANSCRIPT_KEY));
+    return parseTranscript(localStorage.getItem(TRANSCRIPT_KEY), owner);
   } catch {
     return EMPTY_TRANSCRIPT;
   }
 }
 
-export function saveTranscript(t: Transcript): void {
+/** Unreadable data has no owner to protect, so anyone may clear it. */
+function storedOwner(raw: string | null): unknown {
+  if (!raw) return null;
   try {
-    if (t.turns.length === 0) {
-      localStorage.removeItem(TRANSCRIPT_KEY);
-    } else {
-      localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t));
+    const parsed: unknown = JSON.parse(raw);
+    return isObject(parsed) && parsed.owner !== undefined ? parsed.owner : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Forget the saved conversation whoever it belongs to: sign-out. */
+export function clearTranscript(): void {
+  try {
+    localStorage.removeItem(TRANSCRIPT_KEY);
+  } catch {
+    // Storage is unusable; there is nothing saved to clear.
+  }
+}
+
+/** An empty transcript forgets only a conversation `owner` could see, since a panel
+ * mounted as someone else starts empty too. */
+export function saveTranscript(t: Transcript, owner: string | null): void {
+  if (t.turns.length === 0) {
+    try {
+      if (readableBy(storedOwner(localStorage.getItem(TRANSCRIPT_KEY)), owner)) {
+        localStorage.removeItem(TRANSCRIPT_KEY);
+      }
+    } catch {
+      // Storage is unusable; there is nothing saved to clear.
     }
+    return;
+  }
+  try {
+    localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t, owner));
   } catch {
     // Quota exceeded: an older conversation coming back on reload would be worse
     // than none, so drop the stale copy.
-    try {
-      localStorage.removeItem(TRANSCRIPT_KEY);
-    } catch {
-      // Storage is unusable; the conversation still works for this page load.
-    }
+    clearTranscript();
   }
 }
