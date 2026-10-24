@@ -150,7 +150,7 @@ Layout constants: app caps at `1180px` centered; the bench is a `1fr 340px` grid
 | Chat bubble | `.chat-msg.user` / `.chat-msg.bot` | User: paper-dark, right-indented. Bot: paper-lit, blu left border |
 | Suggestion chip | `.chat-chip` | `.clash` modifier same stamp/blush treatment as `.slot.clash` |
 | Primary action button | `.save-btn`, `.share-btn`, `.chat-equip`, `.handoff` | 2px ink border + hard shadow; fill communicates role (gold = save-ish, blu = navigate/equip) |
-| Steam sign-in | `.steam-signin` | Deliberate exception to the token system: Valve's official "Sign in through Steam" image (`public/steam/sits_01.png`), which Valve asks OpenID sites to use (steamcommunity.com/dev). Don't restyle it into a blu `.handoff`-family button, and don't recolor, filter or scale the image; only the focus ring is ours |
+| Steam sign-in | `.steam-signin` | Deliberate exception to the token system: Valve's official "Sign in through Steam" image (`frontend/public/steam/sits_01.png`), which Valve asks OpenID sites to use (steamcommunity.com/dev). Don't restyle it into a blu `.handoff`-family button, and don't recolor, filter or scale the image; only the focus ring is ours |
 
 When you need a new interactive element, start from the closest entry above and change only what genuinely differs — a new one-off class is a last resort.
 
@@ -172,7 +172,7 @@ In-universe Mann Co. register in labels and status copy: "Try it on before you t
 - No rounded pills or soft corners outside `.segmented`/`<select>` (4px) and the budget range-input's native thumb.
 - No soft, blurred `box-shadow` on interactive elements — shadows here are hard-offset, not diffuse.
 - No new font families. Oswald + Inter only; no shipping TF2 Build/Secondary.
-- No color outside the token table without deliberately extending it here first.
+- No color outside the token table without deliberately extending it here first (Valve's Steam sign-in image is the one sanctioned exception; see `.steam-signin` in the component table.)
 - No raw `rgba(43, 38, 32, …)` / `rgba(207, 155, 69, …)` / `rgba(124, 124, 116, …)` literals — use `rgb(var(--ink-rgb) / <alpha>)` etc.
 - No fade or slide animation, no `@keyframes` — this system moves by hard transform only, or not at all.
 - No dark mode yet — there's no alternate token set to switch to. Build one deliberately if it's ever needed, don't bolt on a `prefers-color-scheme` query against the light tokens.
