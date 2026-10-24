@@ -723,7 +723,9 @@ def test_chat_providers_lists_the_allowlist_even_without_a_service():
         assert r.status_code == 200
         providers = r.json()["providers"]
         assert [p["id"] for p in providers] == [spec.id for spec in PROVIDERS]
-        assert all(p["label"] and p["model"] for p in providers)
+        fields = ("id", "label", "model", "keys_url", "pricing_url", "note")
+        for p, spec in zip(providers, PROVIDERS, strict=True):
+            assert p == {field: getattr(spec, field) for field in fields}
 
 
 def _fly_client(base_url: str = "https://tf2-loadout-af.fly.dev") -> TestClient:

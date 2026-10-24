@@ -52,6 +52,13 @@ def test_provider_allowlist_is_exactly_the_three_installed_extras() -> None:
     assert all(spec.label and spec.model for spec in PROVIDERS)
 
 
+def test_every_provider_has_https_key_and_pricing_links_and_a_note() -> None:
+    for spec in PROVIDERS:
+        assert spec.keys_url.startswith("https://")
+        assert spec.pricing_url.startswith("https://")
+        assert spec.note.strip()
+
+
 @pytest.mark.parametrize(
     ("provider", "model_cls"),
     [

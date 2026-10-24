@@ -28,10 +28,12 @@ Frontend visual/styling conventions live in [`DESIGN.md`](./DESIGN.md).
 
 The chat advisor runs on [Pydantic AI](https://ai.pydantic.dev/), and the server holds
 no LLM credential at all. The first time you open the advisor it asks for a provider
-(Anthropic, OpenAI, or OpenRouter — one fixed model each) and an API key. The key is
-kept in your browser's `localStorage` only; it travels with each message as a request
-header, the server builds a model for that one turn, and nothing is stored or logged
-server-side. Clear it any time with "Forget key".
+(Anthropic, OpenAI, or OpenRouter — one fixed model each) and an API key, and links to
+the selected provider's key and pricing pages. The key is kept in your browser's
+`localStorage`, or in `sessionStorage` for that tab only if you tick "Keep for this tab
+only"; it travels with each message as a request header, the server builds a model for
+that one turn, and nothing is stored or logged server-side. Clear it any time with
+"Forget key" (signing out clears it too).
 
 `/healthz` reports `"chat": true` whenever the service built; a turn without a key, or
 with one the provider rejects, is a `401` and the panel reopens the key form.
