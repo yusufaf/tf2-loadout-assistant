@@ -44,10 +44,8 @@ const GREETING =
 
 const KEY_NOTE_SAVED =
   "Saved in this browser until you forget it; signing out forgets it too. Anyone using this browser profile could read it, so on a shared computer keep it for this tab only. It's sent with each message and the server never keeps it.";
-// sessionStorage is copied into a duplicated tab and comes back when a closed tab is
-// reopened or the session restored, so this can't promise "gone when you close it".
 const KEY_NOTE_TAB =
-  "Kept only in this tab's session storage: it survives a reload, and reopening or duplicating the tab can bring it back. On a shared computer, forget it or sign out before you leave. It's sent with each message and the server never keeps it.";
+  "Kept only in this tab's session storage: it survives a reload, and reopening or duplicating the tab can bring it back. On a shared computer, use Forget key in each copy of the tab before you leave. It's sent with each message and the server never keeps it.";
 
 // The measured figure is in the comment above DEFAULT_MAX_REQUESTS in config.py.
 const PER_MESSAGE_NOTE = "Each message makes several model calls, often eight or more.";
