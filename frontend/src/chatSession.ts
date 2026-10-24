@@ -14,8 +14,10 @@
  *
  * It does hold the advisor's tool results, which can list a player's backpack, so it is
  * stamped with the SteamID it was saved under (null when signed out) and only that same
- * identity reads it back. One slot per browser: whoever loads it next with a different
- * identity gets an empty conversation, and their first save overwrites the old one.
+ * identity reads it back. A signed-out conversation has no backpack in it, so signing
+ * in carries it over. One slot per browser: another identity sees an empty panel and
+ * leaves the stored copy alone until its own first exchange overwrites it, so a failed
+ * sign-in probe or an expired session can't delete a player's conversation.
  */
 
 import {
@@ -111,21 +113,24 @@ export function turnOutcome(r: {
   return { kind: "failed", message: DEFAULT_FAILURE };
 }
 
-/** Version 1 had no owner, so it can't be attributed and reads as empty. */
 interface StoredTranscript {
-  version: 2;
+  version: 1;
   owner: string | null;
   turns: Turn[];
   history: unknown[];
 }
 
 export function serializeTranscript(t: Transcript, owner: string | null): string {
-  const file: StoredTranscript = { version: 2, owner, turns: t.turns, history: t.history };
+  const file: StoredTranscript = { version: 1, owner, turns: t.turns, history: t.history };
   return JSON.stringify(file);
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function readableBy(storedOwner: unknown, owner: string | null): boolean {
+  return storedOwner === owner || storedOwner === null;
 }
 
 function parseConflict(v: unknown): Conflict | null {
@@ -166,8 +171,8 @@ export function parseTranscript(raw: string | null, owner: string | null): Trans
   } catch {
     return EMPTY_TRANSCRIPT;
   }
-  if (!isObject(parsed) || parsed.version !== 2) return EMPTY_TRANSCRIPT;
-  if (parsed.owner !== owner) return EMPTY_TRANSCRIPT;
+  if (!isObject(parsed) || parsed.version !== 1) return EMPTY_TRANSCRIPT;
+  if (!readableBy(parsed.owner, owner)) return EMPTY_TRANSCRIPT;
   if (!Array.isArray(parsed.history) || !Array.isArray(parsed.turns)) {
     return EMPTY_TRANSCRIPT;
   }
@@ -188,6 +193,18 @@ export function loadTranscript(owner: string | null): Transcript {
   }
 }
 
+/** Unreadable data has no owner to protect, so anyone may clear it. */
+function storedOwner(raw: string | null): unknown {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isObject(parsed) && parsed.owner !== undefined ? parsed.owner : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Forget the saved conversation whoever it belongs to: sign-out. */
 export function clearTranscript(): void {
   try {
     localStorage.removeItem(TRANSCRIPT_KEY);
@@ -196,9 +213,17 @@ export function clearTranscript(): void {
   }
 }
 
+/** An empty transcript forgets only a conversation `owner` could see, since a panel
+ * mounted as someone else starts empty too. */
 export function saveTranscript(t: Transcript, owner: string | null): void {
   if (t.turns.length === 0) {
-    clearTranscript();
+    try {
+      if (readableBy(storedOwner(localStorage.getItem(TRANSCRIPT_KEY)), owner)) {
+        localStorage.removeItem(TRANSCRIPT_KEY);
+      }
+    } catch {
+      // Storage is unusable; there is nothing saved to clear.
+    }
     return;
   }
   try {
