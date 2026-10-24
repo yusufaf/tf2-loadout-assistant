@@ -68,7 +68,7 @@ async def _echoing_stream_fn(messages, info):
     yield {0: DeltaToolCall(name=info.output_tools[0].name, json_args=args)}
 
 
-def _client(auth=None, inventory=None) -> TestClient:
+def _client(auth=None, inventory=None, session_secret="test-secret") -> TestClient:
     catalog = CatalogService(
         [Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1")]
     )
@@ -85,7 +85,7 @@ def _client(auth=None, inventory=None) -> TestClient:
             pricing,
             chat=chat,
             auth=auth,
-            session_secret="test-secret",
+            session_secret=session_secret,
             https_only=False,
             inventory=inventory,
         )
@@ -138,3 +138,33 @@ def test_chat_stream_also_receives_owned_inventory():
     final = lines[-1]
     assert final["kind"] == "final"
     assert "owns 1" in final["message"]
+
+def test_reply_names_the_account_the_turn_ran_as():
+    # Even with the backpack private: the conversation is still this player's.
+    private = _StubInventory(InventoryResult("private", frozenset(), 0.0))
+    client = _signed_in_client(inventory=private)
+    r = client.post("/chat", json={"message": "dress me"}, headers=LLM_HEADERS)
+    assert r.json()["steam_id"] == STEAM_ID
+    r = client.post("/chat/stream", json={"message": "dress me"}, headers=LLM_HEADERS)
+    assert json.loads(r.text.splitlines()[-1])["steam_id"] == STEAM_ID
+
+
+def test_reply_names_the_account_without_an_inventory_service():
+    client = _signed_in_client(inventory=None)
+    r = client.post("/chat", json={"message": "dress me"}, headers=LLM_HEADERS)
+    assert r.json()["steam_id"] == STEAM_ID
+
+
+def test_reply_names_no_account_when_sessions_are_off():
+    # Auth configured without a session secret installs no SessionMiddleware.
+    client = _client(auth=_StubAuth(), session_secret=None)
+    r = client.post("/chat", json={"message": "dress me"}, headers=LLM_HEADERS)
+    assert r.json()["steam_id"] is None
+
+
+def test_signed_out_reply_names_no_account():
+    client = _client(auth=_StubAuth(), inventory=_StubInventory(InventoryResult("ok", frozenset({1}), 0.0)))
+    r = client.post("/chat", json={"message": "dress me"}, headers=LLM_HEADERS)
+    assert r.json()["steam_id"] is None
+    r = client.post("/chat/stream", json={"message": "dress me"}, headers=LLM_HEADERS)
+    assert json.loads(r.text.splitlines()[-1])["steam_id"] is None

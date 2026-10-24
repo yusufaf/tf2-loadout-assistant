@@ -11,6 +11,7 @@ import {
 import {
   EMPTY_TRANSCRIPT,
   appendExchange,
+  clearTranscript,
   loadTranscript,
   saveTranscript,
   turnOutcome,
@@ -28,6 +29,10 @@ const TOOL_LABELS: Record<string, string> = {
 };
 
 interface Props {
+  /** Who the page thinks is signed in, read only at mount to pick which saved
+   * conversation to show. What a saved conversation is stamped with comes from the
+   * server instead (see `chatSession.ts`). */
+  viewer: string | null;
   cls: string;
   loadout: Cosmetic[];
   /** `forCls` is the class the suggestion was asked for, when known. */
@@ -40,8 +45,8 @@ const GREETING =
 const KEY_NOTE =
   "Your key stays in this browser. It's sent with each message and the server never keeps it.";
 
-export default function ChatPanel({ cls, loadout, onEquip }: Props) {
-  const [transcript, setTranscript] = useState<Transcript>(() => loadTranscript());
+export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
+  const [transcript, setTranscript] = useState<Transcript>(() => loadTranscript(viewer));
   // The in-flight message: shown in the log, but only joins the transcript with its reply.
   const [pending, setPending] = useState<string | null>(null);
   const busy = pending !== null;
@@ -131,6 +136,7 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
   }
 
   function newChat() {
+    clearTranscript();
     setTranscript(EMPTY_TRANSCRIPT);
     setError("");
   }
@@ -222,7 +228,8 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
               suggestions: items,
               conflicts: reply.conflicts ?? [],
             },
-            reply.history ?? []
+            reply.history ?? [],
+            reply.steam_id
           )
         );
       } else {

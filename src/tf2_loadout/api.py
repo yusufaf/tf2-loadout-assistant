@@ -324,6 +324,9 @@ class ChatResponse(BaseModel):
     suggested_defindexes: list[int]
     conflicts: list[ConflictOut]
     history: list[dict]
+    # The SteamID this turn ran as (null when signed out), so the client can store the
+    # transcript under the identity the server actually used rather than its own guess.
+    steam_id: str | None
 
 
 class LoadoutOut(BaseModel):
@@ -498,6 +501,13 @@ def create_app(
         result = await inventory.fetch(steam_id)
         return result.defindexes if result.status == "ok" else None
 
+    def _turn_owner(request: Request) -> str | None:
+        # SessionMiddleware is only installed with auth and a secret; without it,
+        # request.session raises rather than reading as signed out.
+        if "session" not in request.scope:
+            return None
+        return request.session.get("steam_id") or None
+
     def _throttle(limiter: RateLimiter | None, key: str) -> None:
         wait = limiter.hit(key) if limiter is not None else None
         if wait is not None:
@@ -630,6 +640,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="malformed chat history")
         llm = _user_llm(request)
         owned = await _owned_for(request)
+        steam_id = _turn_owner(request)
         try:
             result = await chat.reply(req.message, history, req.equipped, owned, llm)
         except Exception as exc:
@@ -644,6 +655,7 @@ def create_app(
             suggested_defindexes=suggested,
             conflicts=conflicts,
             history=to_jsonable_python(fit_history(result.all_messages())),
+            steam_id=steam_id,
         )
 
     @app.post("/chat/stream")
@@ -665,6 +677,7 @@ def create_app(
         # in-band error line on a 200.
         llm = _user_llm(request)
         owned = await _owned_for(request)
+        steam_id = _turn_owner(request)
 
         async def lines():
             async for event in chat.stream_reply(
@@ -681,6 +694,7 @@ def create_app(
                         "suggested_defindexes": suggested,
                         "conflicts": [c.model_dump() for c in conflicts],
                         "history": to_jsonable_python(fit_history(result.all_messages())),
+                        "steam_id": steam_id,
                     }
                 yield json.dumps(event) + "\n"
 

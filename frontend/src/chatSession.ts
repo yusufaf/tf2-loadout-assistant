@@ -11,6 +11,16 @@
  * versioned envelope, and every storage call wrapped so private mode or a full quota
  * degrades to "no saved conversation". It holds only what the server already saw;
  * the key is never in it.
+ *
+ * It does hold the advisor's tool results, which can list a player's backpack, so it is
+ * stamped with the SteamID the server says each turn ran as (`steam_id` on each reply)
+ * -- never the page's own idea of who is signed in, which `fetchMe` folds to signed-out
+ * on any API failure while the cookie still works. Only that viewer reads it back; a
+ * transcript made entirely signed out (owner null) is readable by anyone, so it carries
+ * over on sign-in. One slot per browser: another
+ * viewer sees an empty panel and leaves the stored copy alone until their own first
+ * exchange overwrites it. Only an explicit New chat or Sign out removes it, never an
+ * empty panel, which can't tell "cleared" from "loaded for someone else".
  */
 
 import {
@@ -40,9 +50,15 @@ export interface Transcript {
   turns: Turn[];
   /** Opaque server state, handed straight back each turn. */
   history: unknown[];
+  /** SteamID the turns in `history` ran as, or null if all ran signed out. */
+  owner: string | null;
 }
 
-export const EMPTY_TRANSCRIPT: Transcript = { turns: [], history: [] };
+export const EMPTY_TRANSCRIPT: Transcript = { turns: [], history: [], owner: null };
+
+/** Owner of a history made under more than one account. Not a SteamID, so no viewer
+ * could read it back, and it is never saved. */
+export const MIXED_OWNER = "mixed";
 
 export const TRANSCRIPT_KEY = "tf2-chat/v1";
 
@@ -55,12 +71,21 @@ export function appendExchange(
   t: Transcript,
   userText: string,
   bot: Turn,
-  history: unknown[]
+  history: unknown[],
+  ranAs: string | null = null
 ): Transcript {
   return {
     turns: [...t.turns, { role: "user" as const, text: userText }, bot].slice(-MAX_TURNS),
     history,
+    owner: mergeOwner(t.owner, ranAs),
   };
+}
+
+/** Never back to null, and never over to another player: the server's history still
+ * holds the earlier turns either way. */
+function mergeOwner(prev: string | null, seen: string | null): string | null {
+  if (seen === null || seen === prev) return prev;
+  return prev === null ? seen : MIXED_OWNER;
 }
 
 export type TurnOutcome =
@@ -108,17 +133,40 @@ export function turnOutcome(r: {
 
 interface StoredTranscript {
   version: 1;
+  owner: string | null;
   turns: Turn[];
   history: unknown[];
 }
 
 export function serializeTranscript(t: Transcript): string {
-  const file: StoredTranscript = { version: 1, turns: t.turns, history: t.history };
+  const { owner, turns, history } = t;
+  const file: StoredTranscript = { version: 1, owner, turns, history };
   return JSON.stringify(file);
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function readableBy(owner: string | null, viewer: string | null): boolean {
+  return owner === null || owner === viewer;
+}
+
+type Envelope = Record<string, unknown> & { owner: string | null };
+
+/** The stored envelope, or null when nothing valid is stored. */
+function readEnvelope(raw: string | null): Envelope | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!isObject(parsed) || parsed.version !== 1) return null;
+  const owner = parsed.owner;
+  if (owner !== null && typeof owner !== "string") return null;
+  return { ...parsed, owner };
 }
 
 function parseConflict(v: unknown): Conflict | null {
@@ -151,49 +199,49 @@ function parseTurn(v: unknown): Turn | null {
 
 /** All-or-nothing on structure: dropping one malformed turn would leave a question
  * without its reply. Lenient within a turn, like `savedLoadouts`' imports. */
-export function parseTranscript(raw: string | null): Transcript {
-  if (!raw) return EMPTY_TRANSCRIPT;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return EMPTY_TRANSCRIPT;
-  }
-  if (!isObject(parsed) || parsed.version !== 1) return EMPTY_TRANSCRIPT;
-  if (!Array.isArray(parsed.history) || !Array.isArray(parsed.turns)) {
+export function parseTranscript(raw: string | null, viewer: string | null): Transcript {
+  const file = readEnvelope(raw);
+  if (!file || !readableBy(file.owner, viewer)) return EMPTY_TRANSCRIPT;
+  if (!Array.isArray(file.history) || !Array.isArray(file.turns)) {
     return EMPTY_TRANSCRIPT;
   }
   const turns: Turn[] = [];
-  for (const raw of parsed.turns) {
+  for (const raw of file.turns) {
     const turn = parseTurn(raw);
     if (!turn) return EMPTY_TRANSCRIPT;
     turns.push(turn);
   }
-  return { turns: turns.slice(-MAX_TURNS), history: parsed.history };
+  return { turns: turns.slice(-MAX_TURNS), history: file.history, owner: file.owner };
 }
 
-export function loadTranscript(): Transcript {
+export function loadTranscript(viewer: string | null): Transcript {
   try {
-    return parseTranscript(localStorage.getItem(TRANSCRIPT_KEY));
+    return parseTranscript(localStorage.getItem(TRANSCRIPT_KEY), viewer);
   } catch {
     return EMPTY_TRANSCRIPT;
   }
 }
 
-export function saveTranscript(t: Transcript): void {
+/** New chat and Sign out. */
+export function clearTranscript(): void {
   try {
-    if (t.turns.length === 0) {
-      localStorage.removeItem(TRANSCRIPT_KEY);
-    } else {
-      localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t));
-    }
+    localStorage.removeItem(TRANSCRIPT_KEY);
+  } catch {
+    // Storage is unusable; there is nothing saved to clear.
+  }
+}
+
+/** Saving nothing is a no-op: an empty panel may have been loaded for another viewer,
+ * and their conversation is still in the slot. */
+export function saveTranscript(t: Transcript): void {
+  if (t.turns.length === 0) return;
+  // Not cleared either: the slot may already hold the other account's own copy.
+  if (t.owner === MIXED_OWNER) return;
+  try {
+    localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t));
   } catch {
     // Quota exceeded: an older conversation coming back on reload would be worse
-    // than none, so drop the stale copy.
-    try {
-      localStorage.removeItem(TRANSCRIPT_KEY);
-    } catch {
-      // Storage is unusable; the conversation still works for this page load.
-    }
+    // than none, and this one would have replaced it anyway.
+    clearTranscript();
   }
 }
