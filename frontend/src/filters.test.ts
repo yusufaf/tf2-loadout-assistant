@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_FILTERS,
   applyFilters,
+  benchForSuggestion,
   activeFilterCount,
   clashingIds,
   toggleEquip,
@@ -330,5 +331,31 @@ describe("toggleEquip", () => {
     const bench = full();
     const next = toggleEquip(bench, bench[0]);
     expect(next).toHaveLength(MAX_EQUIPPED - 1);
+  });
+});
+
+describe("benchForSuggestion", () => {
+  const SNIPER_BENCH = { cls: "Sniper", loadout: [FEDORA] };
+
+  it("replaces the tray with the suggestion, capped at MAX_EQUIPPED", () => {
+    const items = Array.from({ length: MAX_EQUIPPED + 1 }, (_, i) =>
+      cosmetic({ defindex: 100 + i })
+    );
+    const next = benchForSuggestion(SNIPER_BENCH, items, "Sniper");
+    expect(next.loadout).toEqual(items.slice(0, MAX_EQUIPPED));
+  });
+
+  it("switches back to the class the suggestion was made for", () => {
+    expect(benchForSuggestion(SNIPER_BENCH, [MASK], "Spy").cls).toBe("Spy");
+  });
+
+  it("keeps the current class when the suggestion's class is missing or unknown", () => {
+    expect(benchForSuggestion(SNIPER_BENCH, [MASK], undefined).cls).toBe("Sniper");
+    expect(benchForSuggestion(SNIPER_BENCH, [MASK], "Civilian").cls).toBe("Sniper");
+  });
+
+  it("returns a fresh array so the caller can tell it apart from later edits", () => {
+    const items = [MASK];
+    expect(benchForSuggestion(SNIPER_BENCH, items, "Spy").loadout).not.toBe(items);
   });
 });

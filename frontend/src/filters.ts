@@ -7,6 +7,27 @@
 
 import { MAX_EQUIPPED, clashingRegions, type ConflictMatrix } from "./conflicts";
 import type { Conflict, Cosmetic } from "./api";
+import { CLASSES } from "./classes";
+
+/** What the bench shows: the class and the tray. */
+export interface Bench {
+  cls: string;
+  loadout: Cosmetic[];
+}
+
+/** The bench after equipping an advisor suggestion made for `forCls`. It replaces the
+ * tray rather than merging: the advisor is told a suggestion is the whole loadout and
+ * carries forward what the player keeps, so a merge would re-add items it dropped. */
+export function benchForSuggestion(
+  current: Bench,
+  items: Cosmetic[],
+  forCls: string | undefined
+): Bench {
+  return {
+    cls: forCls && CLASSES.includes(forCls) ? forCls : current.cls,
+    loadout: items.slice(0, MAX_EQUIPPED),
+  };
+}
 
 /** Click-to-toggle an item on the bench; null when adding it would overflow. */
 export function toggleEquip(loadout: Cosmetic[], item: Cosmetic): Cosmetic[] | null {
