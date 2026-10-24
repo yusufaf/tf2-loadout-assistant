@@ -328,7 +328,13 @@ export default function App() {
   }
 
   async function handleSignOut() {
-    await signOut();
+    setAuthNote("");
+    try {
+      await signOut();
+    } catch {
+      setAuthNote("Couldn't sign out. Check your connection and try again.");
+      return;
+    }
     setMe({ signed_in: false });
   }
 
@@ -364,7 +370,11 @@ export default function App() {
             </a>
           )}
         </div>
-        {authNote && <p className="auth-note">{authNote}</p>}
+        {authNote && (
+          <p className="auth-note" role="alert">
+            {authNote}
+          </p>
+        )}
       </header>
 
       <div className="bench">
