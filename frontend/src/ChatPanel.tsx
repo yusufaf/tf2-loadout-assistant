@@ -43,11 +43,14 @@ const GREETING =
   "Tell me the look you're after — \"cop-style Spy\", \"gaudy Australian Sniper\" — and I'll dig through the backpack.";
 
 const KEY_NOTE_SAVED =
-  "Saved in this browser until you forget it or sign out. Anyone using this browser profile could read it, so on a shared computer keep it for this tab only. It's sent with each message and the server never keeps it.";
+  "Saved in this browser until you forget it; signing out forgets it too. Anyone using this browser profile could read it, so on a shared computer keep it for this tab only. It's sent with each message and the server never keeps it.";
+// sessionStorage comes back when a closed tab is reopened or the session restored,
+// so this can't promise "gone when you close it".
 const KEY_NOTE_TAB =
-  "Kept in this tab only and gone when you close it. It's sent with each message and the server never keeps it.";
+  "Kept for this tab only: it survives a reload but not a new tab. Reopening a closed tab can bring it back, so on a shared computer forget it before you leave. It's sent with each message and the server never keeps it.";
 
-// A plain turn is ~8 model requests (see DEFAULT_MAX_REQUESTS in config.py).
+// Measured in the comment above DEFAULT_MAX_REQUESTS in config.py: a plain turn is
+// ~8 model requests, a hard one 13.
 const PER_MESSAGE_NOTE = "Each message makes several model calls, often eight or more.";
 
 export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
