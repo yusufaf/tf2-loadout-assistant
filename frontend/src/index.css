@@ -140,31 +140,14 @@ button {
   color: var(--red);
 }
 
-/* ---- Steam sign-in: same button family as .handoff (blu = navigation/identity) ---- */
+/* ---- Steam sign-in: Valve's official button image, unmodified (steamcommunity.com/dev) ---- */
 .steam-signin {
   display: inline-flex;
-  align-items: center;
-  gap: var(--s1);
-  background: var(--blu);
-  color: #fff;
-  border: var(--bd);
-  padding: var(--s1) var(--s2);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
-  font-size: var(--t-xs);
-  text-decoration: none;
-  box-shadow: var(--shadow-hard);
-}
-.steam-signin:hover {
-  background: var(--blu-deep);
+  line-height: 0;
 }
 .steam-signin:focus-visible {
   outline: var(--focus);
   outline-offset: 2px;
-}
-.steam-glyph {
-  flex: none;
 }
 .steam-identity {
   display: inline-flex;

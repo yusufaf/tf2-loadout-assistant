@@ -339,13 +339,7 @@ export default function App() {
             </div>
           ) : (
             <a className="steam-signin" href={steamLoginUrl()} title="We only ever see your SteamID.">
-              <svg className="steam-glyph" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M12 2C6.95 2 2.8 5.82 2.14 10.75l5.35 2.22a2.83 2.83 0 0 1 1.6-.5c.05 0 .1 0 .16.01l2.38-3.47v-.05a3.65 3.65 0 1 1 3.65 3.66l-.04-.01-3.4 2.44v.14a2.83 2.83 0 0 1-4.75 2.1l-4.28-1.78A10 10 0 1 0 12 2Zm-2.6 14.63-.98-.4a2.13 2.13 0 0 0 3.94-1.5l-1.09-.46a1.4 1.4 0 0 1-1.87 2.36ZM17.5 8.65a2.44 2.44 0 1 0-4.87 0 2.44 2.44 0 0 0 4.87 0Zm-4.06 0a1.62 1.62 0 1 1 3.24 0 1.62 1.62 0 0 1-3.24 0Z"
-                />
-              </svg>
-              Sign in through Steam
+              <img src="/steam/sits_01.png" width={180} height={35} alt="Sign in through Steam" />
             </a>
           )}
         </div>
@@ -639,11 +633,22 @@ export default function App() {
           <a href="https://backpack.tf/" target="_blank" rel="noopener noreferrer">
             backpack.tf
           </a>
+          . Item and backpack data via the{" "}
+          <a href="https://steamcommunity.com/dev" target="_blank" rel="noopener noreferrer">
+            Steam Web API
+          </a>
           .
         </p>
         <p>
-          Team Fortress 2 and all related item images are trademarks of Valve Corporation.
-          This is an unofficial fan project, not affiliated with or endorsed by Valve.
+          Team Fortress 2 and all related item images are trademarks of{" "}
+          <a href="https://www.valvesoftware.com/" target="_blank" rel="noopener noreferrer">
+            Valve Corporation
+          </a>
+          . This is an unofficial fan project, not affiliated with or endorsed by Valve. Powered by{" "}
+          <a href="https://store.steampowered.com/" target="_blank" rel="noopener noreferrer">
+            Steam
+          </a>
+          .
         </p>
       </footer>
     </div>

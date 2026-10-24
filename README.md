@@ -84,5 +84,9 @@ pins `ALLOW_MODEL_REQUESTS` to `False`, so no test can reach a provider by accid
 - **Item images and the cosmetic schema** are property of Valve Corporation. Team
   Fortress 2 is a trademark of Valve. This is an unofficial fan project, not affiliated
   with or endorsed by Valve.
+- **"Sign in through Steam" button** (`frontend/public/steam/sits_01.png`) is Valve's
+  official image from [steamcommunity.com/dev](https://steamcommunity.com/dev), used as
+  Valve requests for Steam OpenID sign-in.
 
-Attribution is also surfaced in the site footer to satisfy the CC BY-NC-SA terms.
+Attribution is also surfaced in the site footer, to satisfy the CC BY-NC-SA terms and the
+Steam Web API Terms' link requirement.
