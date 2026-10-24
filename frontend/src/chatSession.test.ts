@@ -284,11 +284,11 @@ describe("localStorage wrappers", () => {
     expect(loadTranscript(A).turns).toHaveLength(2);
   });
 
-  it("a history made under two accounts is not kept at all", () => {
-    const storage = stored(OF_A);
-    vi.stubGlobal("localStorage", storage);
+  it("a history made under two accounts is never saved, and leaves the slot alone", () => {
+    const theirs = appendExchange(EMPTY_TRANSCRIPT, "q", { role: "bot", text: "a" }, [], B);
+    vi.stubGlobal("localStorage", stored(theirs));
     saveTranscript(appendExchange(OF_A, "q", { role: "bot", text: "a" }, [], B));
-    expect(storage.data.has(TRANSCRIPT_KEY)).toBe(false);
+    expect(loadTranscript(B)).toEqual(theirs);
   });
 
   it("clearTranscript removes the key", () => {

@@ -235,10 +235,8 @@ export function clearTranscript(): void {
  * and their conversation is still in the slot. */
 export function saveTranscript(t: Transcript): void {
   if (t.turns.length === 0) return;
-  if (t.owner === MIXED_OWNER) {
-    clearTranscript();
-    return;
-  }
+  // Not cleared either: the slot may already hold the other account's own copy.
+  if (t.owner === MIXED_OWNER) return;
   try {
     localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t));
   } catch {
