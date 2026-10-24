@@ -538,7 +538,14 @@ def create_app(
         served even when the chat service itself failed to construct."""
         return {
             "providers": [
-                {"id": spec.id, "label": spec.label, "model": spec.model}
+                {
+                    "id": spec.id,
+                    "label": spec.label,
+                    "model": spec.model,
+                    "keys_url": spec.keys_url,
+                    "pricing_url": spec.pricing_url,
+                    "note": spec.note,
+                }
                 for spec in PROVIDERS
             ]
         }

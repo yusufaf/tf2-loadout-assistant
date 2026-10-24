@@ -37,15 +37,51 @@ class ProviderSpec:
     # models; letting players type any model name in is how weak models end up
     # inventing cosmetics.
     model: str
+    # Shown in the key form so a first-time player knows where to get a key and
+    # what they'll be billed. The note describes billing for `model`; keep it true
+    # when the model changes.
+    keys_url: str
+    pricing_url: str
+    note: str
 
 
 # The allowlist the UI dropdown is built from and the header is validated against.
 # Matches the Pydantic AI extras installed in pyproject -- add an extra before adding
 # a row here.
 PROVIDERS: tuple[ProviderSpec, ...] = (
-    ProviderSpec("anthropic", "Anthropic", "claude-opus-4-8"),
-    ProviderSpec("openai", "OpenAI", "gpt-5"),
-    ProviderSpec("openrouter", "OpenRouter", "anthropic/claude-opus-4-8"),
+    ProviderSpec(
+        id="anthropic",
+        label="Anthropic",
+        model="claude-opus-4-8",
+        keys_url="https://platform.claude.com/settings/keys",
+        pricing_url="https://platform.claude.com/docs/en/about-claude/pricing",
+        note=(
+            "Billed per token to your Claude Console account, separately from any "
+            "Claude Pro or Max plan."
+        ),
+    ),
+    ProviderSpec(
+        id="openai",
+        label="OpenAI",
+        model="gpt-5",
+        keys_url="https://platform.openai.com/api-keys",
+        pricing_url="https://developers.openai.com/api/docs/pricing",
+        note=(
+            "Billed per token to your OpenAI API account, separately from any "
+            "ChatGPT plan."
+        ),
+    ),
+    ProviderSpec(
+        id="openrouter",
+        label="OpenRouter",
+        model="anthropic/claude-opus-4-8",
+        keys_url="https://openrouter.ai/settings/keys",
+        pricing_url="https://openrouter.ai/anthropic/claude-opus-4.8",
+        note=(
+            "Spends prepaid OpenRouter credits; it runs the same Claude model as "
+            "the Anthropic option."
+        ),
+    ),
 )
 
 
