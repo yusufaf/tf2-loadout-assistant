@@ -137,6 +137,11 @@ export interface ChatProvider {
   label: string;
   /** The one fixed model this provider is used with; shown, not editable. */
   model: string;
+  /** Where this provider issues API keys. */
+  keys_url: string;
+  pricing_url: string;
+  /** How using this provider is billed; shown under the dropdown. */
+  note: string;
 }
 
 /** The dropdown's contents come from the server's allowlist so the two can't drift.

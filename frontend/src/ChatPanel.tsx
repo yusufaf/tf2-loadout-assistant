@@ -18,7 +18,7 @@ import {
   type Transcript,
 } from "./chatSession";
 import { clashingIds } from "./filters";
-import { clearLlmKey, loadLlmKey, saveLlmKey, type LlmKey } from "./llmKey";
+import { clearLlmKey, loadLlmKey, saveLlmKey, type SavedLlmKey } from "./llmKey";
 
 /** What each tool is doing, in the player's terms rather than the function's. */
 const TOOL_LABELS: Record<string, string> = {
@@ -42,8 +42,13 @@ interface Props {
 const GREETING =
   "Tell me the look you're after — \"cop-style Spy\", \"gaudy Australian Sniper\" — and I'll dig through the backpack.";
 
-const KEY_NOTE =
-  "Your key stays in this browser. It's sent with each message and the server never keeps it.";
+const KEY_NOTE_SAVED =
+  "Saved in this browser until you forget it or sign out. Anyone using this browser profile could read it, so on a shared computer keep it for this tab only. It's sent with each message and the server never keeps it.";
+const KEY_NOTE_TAB =
+  "Kept in this tab only and gone when you close it. It's sent with each message and the server never keeps it.";
+
+// A plain turn is ~8 model requests (see DEFAULT_MAX_REQUESTS in config.py).
+const PER_MESSAGE_NOTE = "Each message makes several model calls, often eight or more.";
 
 export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
   const [transcript, setTranscript] = useState<Transcript>(() => loadTranscript(viewer));
@@ -60,13 +65,14 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
 
   // The player's own provider key; there is no server-side fallback, so with none
   // stored the key form takes the place of the message box.
-  const [llmKey, setLlmKey] = useState<LlmKey | null>(() => loadLlmKey());
+  const [llmKey, setLlmKey] = useState<SavedLlmKey | null>(() => loadLlmKey());
   const [providers, setProviders] = useState<ChatProvider[]>([]);
   const [providersFailed, setProvidersFailed] = useState(false);
   const [providersAttempt, setProvidersAttempt] = useState(0);
   const [showKeyForm, setShowKeyForm] = useState(llmKey === null);
   const [draftProvider, setDraftProvider] = useState(llmKey?.provider ?? "");
   const [draftKey, setDraftKey] = useState("");
+  const [draftRemember, setDraftRemember] = useState(llmKey?.remember ?? true);
 
   useEffect(() => saveTranscript(transcript), [transcript]);
 
@@ -104,6 +110,14 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
 
   const providerLabel = (id: string) =>
     providers.find((p) => p.id === id)?.label ?? id;
+  const selected = providers.find((p) => p.id === draftProvider);
+
+  // Every way into the form starts from the stored choice, so a checkbox change
+  // abandoned with Cancel can't carry into a later save.
+  function openKeyForm() {
+    setDraftRemember(llmKey?.remember ?? true);
+    setShowKeyForm(true);
+  }
 
   function saveKey(e: React.FormEvent) {
     e.preventDefault();
@@ -116,8 +130,8 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
       return;
     }
     const key = { provider: draftProvider, apiKey };
-    saveLlmKey(key, true);
-    setLlmKey(key);
+    saveLlmKey(key, draftRemember);
+    setLlmKey({ ...key, remember: draftRemember });
     setDraftKey("");
     setError("");
     setShowKeyForm(false);
@@ -127,12 +141,12 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
     clearLlmKey();
     setLlmKey(null);
     setDraftKey("");
-    setShowKeyForm(true);
+    openKeyForm();
   }
 
   function rejectKey(provider: string) {
     setError(`${providerLabel(provider)} rejected that key. Check it and try again.`);
-    setShowKeyForm(true);
+    openKeyForm();
   }
 
   function newChat() {
@@ -260,9 +274,11 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
             <button
               type="button"
               className="chat-key-toggle"
-              onClick={() => setShowKeyForm((v) => !v)}
+              onClick={() => (showKeyForm ? setShowKeyForm(false) : openKeyForm())}
               aria-expanded={showKeyForm}
-              title={`Using your ${providerLabel(llmKey.provider)} key`}
+              title={`Using your ${providerLabel(llmKey.provider)} key${
+                llmKey.remember ? "" : " for this tab only"
+              }`}
             >
               {providerLabel(llmKey.provider)} key
             </button>
@@ -345,6 +361,22 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
               ))}
             </select>
           </label>
+          {selected && (
+            <div className="chat-provider-info">
+              <p>
+                Runs <strong>{selected.model}</strong>. {selected.note} {PER_MESSAGE_NOTE}
+              </p>
+              <p>
+                <a href={selected.keys_url} target="_blank" rel="noopener noreferrer">
+                  Get a key
+                </a>
+                {" · "}
+                <a href={selected.pricing_url} target="_blank" rel="noopener noreferrer">
+                  Pricing
+                </a>
+              </p>
+            </div>
+          )}
           <label className="chat-keyform-row">
             <span>API key</span>
             <input
@@ -357,7 +389,15 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
               onChange={(e) => setDraftKey(e.target.value)}
             />
           </label>
-          <p className="chat-key-note">{KEY_NOTE}</p>
+          <label className="chat-keyform-check">
+            <input
+              type="checkbox"
+              checked={!draftRemember}
+              onChange={(e) => setDraftRemember(!e.target.checked)}
+            />
+            Keep for this tab only
+          </label>
+          <p className="chat-key-note">{draftRemember ? KEY_NOTE_SAVED : KEY_NOTE_TAB}</p>
           {providersFailed && (
             <p className="chat-status error" role="alert">
               Couldn't load the list of providers.
