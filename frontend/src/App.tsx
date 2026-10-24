@@ -59,6 +59,8 @@ function priceTotals(items: Cosmetic[]): string {
 // untouched, even when an edit has emptied the tray again.
 const NO_LOADOUT: Cosmetic[] = [];
 
+const BENCH_UNREACHABLE = "Can't reach the bench. Is the API running?";
+
 export default function App() {
   const [cls, setCls] = useState("Spy");
   const [query, setQuery] = useState("");
@@ -80,6 +82,8 @@ export default function App() {
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
   const [authNote, setAuthNote] = useState("");
+  // Bumped by the bench Retry to re-run every fetch that fails when the API is down.
+  const [apiRetry, setApiRetry] = useState(0);
   const [backpack, setBackpack] = useState<BackpackState>({ kind: "signed_out" });
   const backpackToken = useRef(0);
   const saved = useSavedLoadouts(me.signed_in && me.steam_id ? me.steam_id : null);
@@ -87,16 +91,20 @@ export default function App() {
   const importRef = useRef<HTMLInputElement>(null);
   const loadToken = useRef(0);
 
-  // Hide the advisor entirely when the API has no LLM configured.
+  // Hide the advisor entirely when the API has no LLM configured. Probed at mount and
+  // again on the bench Retry; it only ever turns the advisor on, so a Retry while the
+  // API is still down can't unmount the panel and its transcript.
   useEffect(() => {
-    fetchChatAvailable().then(setChatAvailable);
-  }, []);
+    fetchChatAvailable().then((ok) => setChatAvailable((prev) => prev || ok));
+  }, [apiRetry]);
 
-  // Probe sign-in state at mount; an absent/unconfigured auth service just reads as
-  // signed-out, same as the chat-availability probe above.
+  // Probe sign-in state at mount and on the bench Retry; an absent/unconfigured auth
+  // service just reads as signed-out, same as the chat-availability probe above. A
+  // signed-out answer never overrides a signed-in one: while the API is down `fetchMe`
+  // folds to signed-out, and detecting an expired session is out of scope.
   useEffect(() => {
-    fetchMe().then(setMe);
-  }, []);
+    fetchMe().then((m) => setMe((prev) => (prev.signed_in && !m.signed_in ? prev : m)));
+  }, [apiRetry]);
 
   // Fetch the backpack once signed in. Not re-run on every render -- the API caches
   // it server-side for ~10min, and `reloadBackpack` is the way to re-read it. The token
@@ -121,14 +129,14 @@ export default function App() {
     history.replaceState(null, "", withoutParam(location, "auth"));
   }, []);
 
-  // The conflict matrix is static, so fetch it once and filter locally afterwards. An
-  // empty matrix still detects same-region clashes, so a failure degrades rather than
-  // breaks.
+  // The conflict matrix is static, so fetch it at mount and on the bench Retry, and
+  // filter locally afterwards. An empty matrix still detects same-region clashes, so a
+  // failure degrades rather than breaks; a failed re-fetch keeps the matrix we have.
   useEffect(() => {
     fetchConflictMatrix()
       .then(setMatrix)
-      .catch(() => setMatrix({}));
-  }, []);
+      .catch(() => {});
+  }, [apiRetry]);
 
   // Load a shared build from ?build=... once on mount, then strip the param. It tracks
   // its own loading flag rather than `status`, which belongs to the cosmetics grid --
@@ -174,13 +182,13 @@ export default function App() {
           setCosmetics(items);
           setStatus(items.length ? "" : "No cosmetics match.");
         })
-        .catch(() => active && setStatus("Can't reach the bench. Is the API running?"));
+        .catch(() => active && setStatus(BENCH_UNREACHABLE));
     }, 200);
     return () => {
       active = false;
       clearTimeout(t);
     };
-  }, [cls, query]);
+  }, [cls, query, apiRetry]);
 
   // Re-check conflicts whenever the loadout changes.
   useEffect(() => {
@@ -395,7 +403,14 @@ export default function App() {
             ownedRefreshFailed={backpackRefreshFailed(backpack)}
           />
 
-          {status ? (
+          {status === BENCH_UNREACHABLE ? (
+            <p className="status error" role="alert">
+              {status}{" "}
+              <button type="button" onClick={() => setApiRetry((n) => n + 1)}>
+                Retry
+              </button>
+            </p>
+          ) : status ? (
             <p className="status">{status}</p>
           ) : entries.length === 0 ? (
             <p className="status">No cosmetics match these filters.</p>
