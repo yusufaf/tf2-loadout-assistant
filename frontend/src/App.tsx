@@ -29,8 +29,12 @@ import {
 import {
   DEFAULT_FILTERS,
   applyFilters,
+  benchForSuggestion,
+  canUndoAdvisor,
   clashingIds,
+  rebaseAdvisorUndo,
   toggleEquip,
+  type AdvisorUndo,
   type FilterState,
 } from "./filters";
 import { MAX_EQUIPPED, type ConflictMatrix } from "./conflicts";
@@ -41,6 +45,7 @@ import { mergeFresh } from "./savedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
 import { withoutParam } from "./urlParams";
 import ChatPanel from "./ChatPanel";
+import { EMPTY_TRANSCRIPT, saveTranscript } from "./chatSession";
 
 function priceTotals(items: Cosmetic[]): string {
   const sums = new Map<string, number>();
@@ -78,6 +83,11 @@ export default function App() {
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [matrix, setMatrix] = useState<ConflictMatrix>({});
   const [shareNote, setShareNote] = useState("");
+  // The bench before the last advisor Equip. Offered only while `applied` is still the
+  // bench: any later edit makes a new array, or a new class, and retires the Undo. A
+  // class switch must also clear it (see `changeClass`), or switching back revives it.
+  const [advisorUndo, setAdvisorUndo] = useState<AdvisorUndo | null>(null);
+  const [chatEpoch, setChatEpoch] = useState(0);
   const [pinnedNotes, setPinnedNotes] = useState<string[]>([]);
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
@@ -271,6 +281,37 @@ export default function App() {
     setLoadout((l) => l.filter((c) => c.defindex !== defindex));
   }
 
+  function equipSuggestion(items: Cosmetic[], forCls: string | undefined) {
+    const token = ++loadToken.current;
+    const prev = { cls, loadout };
+    const next = benchForSuggestion(prev, items, forCls);
+    setCls(next.cls);
+    setLoadout(next.loadout);
+    setAdvisorUndo({ applied: next, prev });
+    // The suggestion may come from a conversation saved days ago.
+    void refreshShown(next.loadout, token, "Couldn't refresh prices — showing the advisor's copy.");
+  }
+  function undoAdvisorEquip() {
+    if (!advisorUndo) return;
+    const { prev } = advisorUndo;
+    const token = ++loadToken.current;
+    setCls(prev.cls);
+    setLoadout(prev.loadout);
+    setAdvisorUndo(null);
+    // `prev` can be a Load whose own refresh was cut short by the Equip. Never refresh an
+    // empty tray: that would replace NO_LOADOUT, which the shared-link loader keys on.
+    if (prev.loadout.length > 0) {
+      void refreshShown(prev.loadout, token, "Couldn't refresh prices — showing the earlier copy.");
+    }
+  }
+  function changeClass(c: string) {
+    if (c === cls) return;
+    setCls(c);
+    // Switching back later must not revive an Undo that would also revert the class.
+    setAdvisorUndo(null);
+  }
+  const undoOffered = canUndoAdvisor(advisorUndo, { cls, loadout });
+
   function saveCurrent() {
     const name = window.prompt("Name this loadout:", `${cls} build`);
     if (name === null) return;
@@ -286,12 +327,18 @@ export default function App() {
     // Show the saved copy at once, then swap in the catalog's current prices and images.
     const shown = items.slice(0, MAX_EQUIPPED);
     setLoadout(shown);
+    await refreshShown(shown, token, "Couldn't refresh prices — showing the saved copy.");
+  }
+
+  /** Swap a just-shown stored copy for the catalog's current prices and images. */
+  async function refreshShown(shown: Cosmetic[], token: number, failNote: string) {
     try {
       const { items: fresh } = await lookupCosmetics(shown.map((c) => c.defindex));
       const { items: merged, dropped } = mergeFresh(shown, fresh);
       // Identity check: an equip/unequip, advisor equip or another Load since replaced
       // the array, and the player's edit wins over the refresh.
       setLoadout((cur) => (cur === shown ? merged : cur));
+      setAdvisorUndo((u) => rebaseAdvisorUndo(u, shown, merged));
       if (token === loadToken.current && dropped) {
         flashNote(
           `${dropped} item${dropped === 1 ? "" : "s"} in this loadout ${dropped === 1 ? "is" : "are"} no longer in the catalog.`
@@ -299,7 +346,7 @@ export default function App() {
       }
     } catch {
       if (token === loadToken.current) {
-        flashNote("Couldn't refresh prices — showing the saved copy.");
+        flashNote(failNote);
       }
     }
   }
@@ -343,6 +390,10 @@ export default function App() {
       return;
     }
     meToken.current++;
+    // The advisor's history can hold this player's backpack results; don't leave it for
+    // whoever uses the browser next. Bumping ChatPanel's key remounts it empty.
+    saveTranscript(EMPTY_TRANSCRIPT);
+    setChatEpoch((n) => n + 1);
     setMe({ signed_in: false });
   }
 
@@ -393,7 +444,7 @@ export default function App() {
                 key={c}
                 className="class-chip"
                 aria-pressed={c === cls}
-                onClick={() => setCls(c)}
+                onClick={() => changeClass(c)}
               >
                 <img className="class-icon" src={`/classes/${c.toLowerCase()}.png`} alt="" />
                 {c}
@@ -562,6 +613,15 @@ export default function App() {
           )}
 
           {shareNote && <p className="share-note">{shareNote}</p>}
+          {undoOffered && (
+            <p className="share-note" role="status">
+              Equipped the advisor's pick.{" "}
+              <button onClick={undoAdvisorEquip}>Undo</button>{" "}
+              <button onClick={() => setAdvisorUndo(null)} aria-label="Dismiss">
+                ✕
+              </button>
+            </p>
+          )}
           {pinnedNotes.map((text) => (
             <p key={text} className="share-note">
               {text}{" "}
@@ -657,9 +717,10 @@ export default function App() {
 
           {chatAvailable && (
             <ChatPanel
+              key={chatEpoch}
               cls={cls}
               loadout={loadout}
-              onEquip={(items) => setLoadout(items.slice(0, MAX_EQUIPPED))}
+              onEquip={equipSuggestion}
             />
           )}
         </aside>

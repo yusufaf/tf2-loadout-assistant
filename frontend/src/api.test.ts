@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchInventory, signOut } from "./api";
+import {
+  ChatHistoryRejectedError,
+  fetchInventory,
+  signOut,
+  streamChat,
+  type ChatStreamEvent,
+} from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -30,5 +36,50 @@ describe("fetchInventory", () => {
     vi.stubGlobal("fetch", fetchMock);
     await fetchInventory(true);
     expect(fetchMock).toHaveBeenCalledWith("/me/inventory?refresh=1");
+  });
+});
+
+describe("streamChat", () => {
+  const llm = { provider: "anthropic", apiKey: "k" };
+
+  it("passes the abort signal to fetch", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response('{"kind":"final","message":"hi"}\n'));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    await streamChat("m", [], [], llm, () => {}, controller.signal);
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
+  });
+
+  it("reassembles a line split across chunks", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(encoder.encode('{"kind":"tool","name":"x"}\n{"ki'));
+        c.enqueue(encoder.encode('nd":"final"}'));
+        c.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body)));
+    const events: ChatStreamEvent[] = [];
+    await streamChat("m", [], [], llm, (e) => events.push(e));
+    expect(events).toEqual([{ kind: "tool", name: "x" }, { kind: "final" }]);
+  });
+
+  it("throws ChatHistoryRejectedError on the server's history 422", async () => {
+    const res = Response.json({ detail: "malformed chat history" }, { status: 422 });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(res));
+    await expect(streamChat("m", [{ bad: true }], [], llm, () => {})).rejects.toBeInstanceOf(
+      ChatHistoryRejectedError
+    );
+  });
+
+  it("treats a request-body 422 as a plain failure, not a stale history", async () => {
+    const res = Response.json({ detail: [{ loc: ["body", "message"] }] }, { status: 422 });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(res));
+    const err = await streamChat("m", [], [], llm, () => {}).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(ChatHistoryRejectedError);
   });
 });

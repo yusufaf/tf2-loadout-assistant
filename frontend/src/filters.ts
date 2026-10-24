@@ -7,6 +7,51 @@
 
 import { MAX_EQUIPPED, clashingRegions, type ConflictMatrix } from "./conflicts";
 import type { Conflict, Cosmetic } from "./api";
+import { CLASSES } from "./classes";
+
+/** What the bench shows: the class and the tray. */
+export interface Bench {
+  cls: string;
+  loadout: Cosmetic[];
+}
+
+/** The bench after equipping an advisor suggestion made for `forCls`. It replaces the
+ * tray rather than merging: the advisor is told a suggestion is the whole loadout and
+ * carries forward what the player keeps, so a merge would re-add items it dropped. */
+export function benchForSuggestion(
+  current: Bench,
+  items: Cosmetic[],
+  forCls: string | undefined
+): Bench {
+  return {
+    cls: forCls && CLASSES.includes(forCls) ? forCls : current.cls,
+    loadout: items.slice(0, MAX_EQUIPPED),
+  };
+}
+
+/** The bench before an advisor Equip, and the bench that Equip made. */
+export interface AdvisorUndo {
+  applied: Bench;
+  prev: Bench;
+}
+
+/** Undo is offered only while the bench is still exactly what Equip made. Every tray
+ * edit makes a new array, so identity (not contents) is what retires it. */
+export function canUndoAdvisor(undo: AdvisorUndo | null, bench: Bench): boolean {
+  return (
+    undo !== null && undo.applied.loadout === bench.loadout && undo.applied.cls === bench.cls
+  );
+}
+
+/** Keep Undo pointed at the tray when the catalog refresh replaces `shown` with `merged`. */
+export function rebaseAdvisorUndo(
+  undo: AdvisorUndo | null,
+  shown: Cosmetic[],
+  merged: Cosmetic[]
+): AdvisorUndo | null {
+  if (!undo || undo.applied.loadout !== shown) return undo;
+  return { ...undo, applied: { ...undo.applied, loadout: merged } };
+}
 
 /** Click-to-toggle an item on the bench; null when adding it would overflow. */
 export function toggleEquip(loadout: Cosmetic[], item: Cosmetic): Cosmetic[] | null {
