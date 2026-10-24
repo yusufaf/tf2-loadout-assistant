@@ -909,6 +909,11 @@ button {
   justify-content: space-between;
   gap: var(--s2);
 }
+.chat-head-actions {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+}
 .chat-key-toggle {
   background: none;
   border: none;

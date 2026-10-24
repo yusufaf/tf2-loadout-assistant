@@ -29,8 +29,10 @@ import {
 import {
   DEFAULT_FILTERS,
   applyFilters,
+  benchForSuggestion,
   clashingIds,
   toggleEquip,
+  type Bench,
   type FilterState,
 } from "./filters";
 import { MAX_EQUIPPED, type ConflictMatrix } from "./conflicts";
@@ -78,6 +80,11 @@ export default function App() {
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [matrix, setMatrix] = useState<ConflictMatrix>({});
   const [shareNote, setShareNote] = useState("");
+  // The bench before the last advisor Equip. Offered only while `applied` is still the
+  // tray: any later edit makes a new array and retires the Undo.
+  const [advisorUndo, setAdvisorUndo] = useState<{ applied: Cosmetic[]; prev: Bench } | null>(
+    null
+  );
   const [pinnedNotes, setPinnedNotes] = useState<string[]>([]);
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
@@ -270,6 +277,21 @@ export default function App() {
   function unequip(defindex: number) {
     setLoadout((l) => l.filter((c) => c.defindex !== defindex));
   }
+
+  function equipSuggestion(items: Cosmetic[], forCls: string | undefined) {
+    const prev = { cls, loadout };
+    const next = benchForSuggestion(prev, items, forCls);
+    setCls(next.cls);
+    setLoadout(next.loadout);
+    setAdvisorUndo({ applied: next.loadout, prev });
+  }
+  function undoAdvisorEquip() {
+    if (!advisorUndo) return;
+    setCls(advisorUndo.prev.cls);
+    setLoadout(advisorUndo.prev.loadout);
+    setAdvisorUndo(null);
+  }
+  const canUndoAdvisor = advisorUndo !== null && advisorUndo.applied === loadout;
 
   function saveCurrent() {
     const name = window.prompt("Name this loadout:", `${cls} build`);
@@ -562,6 +584,15 @@ export default function App() {
           )}
 
           {shareNote && <p className="share-note">{shareNote}</p>}
+          {canUndoAdvisor && (
+            <p className="share-note" role="status">
+              Equipped the advisor's pick.{" "}
+              <button onClick={undoAdvisorEquip}>Undo</button>{" "}
+              <button onClick={() => setAdvisorUndo(null)} aria-label="Dismiss">
+                ✕
+              </button>
+            </p>
+          )}
           {pinnedNotes.map((text) => (
             <p key={text} className="share-note">
               {text}{" "}
@@ -659,7 +690,7 @@ export default function App() {
             <ChatPanel
               cls={cls}
               loadout={loadout}
-              onEquip={(items) => setLoadout(items.slice(0, MAX_EQUIPPED))}
+              onEquip={equipSuggestion}
             />
           )}
         </aside>
