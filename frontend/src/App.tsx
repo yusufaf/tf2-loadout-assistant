@@ -84,7 +84,8 @@ export default function App() {
   const [matrix, setMatrix] = useState<ConflictMatrix>({});
   const [shareNote, setShareNote] = useState("");
   // The bench before the last advisor Equip. Offered only while `applied` is still the
-  // bench: any later edit makes a new array, or a new class, and retires the Undo.
+  // bench: any later edit makes a new array, or a new class, and retires the Undo. A
+  // class switch must also clear it (see `changeClass`), or switching back revives it.
   const [advisorUndo, setAdvisorUndo] = useState<AdvisorUndo | null>(null);
   const [chatEpoch, setChatEpoch] = useState(0);
   const [pinnedNotes, setPinnedNotes] = useState<string[]>([]);
@@ -304,6 +305,7 @@ export default function App() {
     }
   }
   function changeClass(c: string) {
+    if (c === cls) return;
     setCls(c);
     // Switching back later must not revive an Undo that would also revert the class.
     setAdvisorUndo(null);
