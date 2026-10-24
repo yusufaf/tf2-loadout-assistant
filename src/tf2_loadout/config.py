@@ -74,7 +74,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         id="openrouter",
         label="OpenRouter",
-        model="anthropic/claude-opus-4-8",
+        model="anthropic/claude-opus-4.8",
         keys_url="https://openrouter.ai/settings/keys",
         pricing_url="https://openrouter.ai/anthropic/claude-opus-4.8",
         note=(
