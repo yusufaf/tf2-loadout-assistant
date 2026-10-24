@@ -43,6 +43,7 @@ import { mergeFresh } from "./savedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
 import { withoutParam } from "./urlParams";
 import ChatPanel from "./ChatPanel";
+import { EMPTY_TRANSCRIPT, saveTranscript } from "./chatSession";
 
 function priceTotals(items: Cosmetic[]): string {
   const sums = new Map<string, number>();
@@ -81,8 +82,8 @@ export default function App() {
   const [matrix, setMatrix] = useState<ConflictMatrix>({});
   const [shareNote, setShareNote] = useState("");
   // The bench before the last advisor Equip. Offered only while `applied` is still the
-  // tray: any later edit makes a new array and retires the Undo.
-  const [advisorUndo, setAdvisorUndo] = useState<{ applied: Cosmetic[]; prev: Bench } | null>(
+  // bench: any later edit makes a new array, or a new class, and retires the Undo.
+  const [advisorUndo, setAdvisorUndo] = useState<{ applied: Bench; prev: Bench } | null>(
     null
   );
   const [pinnedNotes, setPinnedNotes] = useState<string[]>([]);
@@ -279,11 +280,14 @@ export default function App() {
   }
 
   function equipSuggestion(items: Cosmetic[], forCls: string | undefined) {
+    const token = ++loadToken.current;
     const prev = { cls, loadout };
     const next = benchForSuggestion(prev, items, forCls);
     setCls(next.cls);
     setLoadout(next.loadout);
-    setAdvisorUndo({ applied: next.loadout, prev });
+    setAdvisorUndo({ applied: next, prev });
+    // The suggestion may come from a conversation saved days ago.
+    void refreshShown(next.loadout, token);
   }
   function undoAdvisorEquip() {
     if (!advisorUndo) return;
@@ -291,7 +295,10 @@ export default function App() {
     setLoadout(advisorUndo.prev.loadout);
     setAdvisorUndo(null);
   }
-  const canUndoAdvisor = advisorUndo !== null && advisorUndo.applied === loadout;
+  const canUndoAdvisor =
+    advisorUndo !== null &&
+    advisorUndo.applied.loadout === loadout &&
+    advisorUndo.applied.cls === cls;
 
   function saveCurrent() {
     const name = window.prompt("Name this loadout:", `${cls} build`);
@@ -308,12 +315,20 @@ export default function App() {
     // Show the saved copy at once, then swap in the catalog's current prices and images.
     const shown = items.slice(0, MAX_EQUIPPED);
     setLoadout(shown);
+    await refreshShown(shown, token);
+  }
+
+  /** Swap a just-shown stored copy for the catalog's current prices and images. */
+  async function refreshShown(shown: Cosmetic[], token: number) {
     try {
       const { items: fresh } = await lookupCosmetics(shown.map((c) => c.defindex));
       const { items: merged, dropped } = mergeFresh(shown, fresh);
       // Identity check: an equip/unequip, advisor equip or another Load since replaced
       // the array, and the player's edit wins over the refresh.
       setLoadout((cur) => (cur === shown ? merged : cur));
+      setAdvisorUndo((u) =>
+        u && u.applied.loadout === shown ? { ...u, applied: { ...u.applied, loadout: merged } } : u
+      );
       if (token === loadToken.current && dropped) {
         flashNote(
           `${dropped} item${dropped === 1 ? "" : "s"} in this loadout ${dropped === 1 ? "is" : "are"} no longer in the catalog.`
@@ -365,6 +380,9 @@ export default function App() {
       return;
     }
     meToken.current++;
+    // The advisor's history can hold this player's backpack results; don't leave it for
+    // whoever uses the browser next. ChatPanel is keyed on the account, so it remounts empty.
+    saveTranscript(EMPTY_TRANSCRIPT);
     setMe({ signed_in: false });
   }
 
@@ -688,6 +706,7 @@ export default function App() {
 
           {chatAvailable && (
             <ChatPanel
+              key={me.steam_id ?? "signed-out"}
               cls={cls}
               loadout={loadout}
               onEquip={equipSuggestion}
