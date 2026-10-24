@@ -46,6 +46,7 @@ import { decodeLoadout, shareUrl } from "./shareLink";
 import { withoutParam } from "./urlParams";
 import ChatPanel from "./ChatPanel";
 import { clearTranscript } from "./chatSession";
+import { clearLlmKey } from "./llmKey";
 
 function priceTotals(items: Cosmetic[]): string {
   const sums = new Map<string, number>();
@@ -394,9 +395,12 @@ export default function App() {
       return;
     }
     meToken.current++;
-    // The advisor's history can hold this player's backpack results; don't leave it for
-    // whoever uses the browser next. The new identity remounts ChatPanel empty.
+    // Don't leave the next person on this browser the advisor's history, which can hold
+    // this player's backpack results, or their key, which would bill the player's
+    // provider. Both are cleared before the new identity remounts ChatPanel, which
+    // reads them at mount.
     clearTranscript();
+    clearLlmKey();
     setMe({ signed_in: false });
     setMeKnown(true);
   }
