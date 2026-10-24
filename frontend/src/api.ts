@@ -198,8 +198,11 @@ export function steamLoginUrl(): string {
   return `${BASE}/auth/steam/login`;
 }
 
+/** Throws on a network error or any non-2xx: either way the session cookie wasn't
+ * cleared, so the caller must not show the player as signed out. */
 export async function signOut(): Promise<void> {
-  await fetch(`${BASE}/auth/logout`, { method: "POST" });
+  const res = await fetch(`${BASE}/auth/logout`, { method: "POST" });
+  if (!res.ok) throw new Error(`logout ${res.status}`);
 }
 
 export type InventoryStatus = "ok" | "private" | "not_found" | "error";
@@ -210,9 +213,9 @@ export interface Inventory {
   fetched_at: number;
 }
 
-/** Signed-out (401) and unconfigured (503) both read as "no inventory data" -- the
- * caller disables the owned-only toggle either way rather than treating it as an
- * error the user needs to act on. */
+/** Null means the read failed: signed out (401), refresh rate-limited (429),
+ * unconfigured (503), or a network error. The caller shows that as a failed state with
+ * a Retry, never as still loading or as owning nothing. */
 export async function fetchInventory(refresh = false): Promise<Inventory | null> {
   try {
     const params = refresh ? "?refresh=1" : "";

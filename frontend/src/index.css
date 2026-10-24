@@ -137,7 +137,7 @@ button {
   margin: var(--s1) 0 0;
   font-size: var(--t-sm);
   font-weight: 600;
-  color: var(--red);
+  color: var(--stamp);
 }
 
 /* ---- Steam sign-in: Valve's official button image, unmodified (steamcommunity.com/dev) ---- */
@@ -544,6 +544,10 @@ button {
   color: var(--ink-soft);
   padding: var(--s4) 0;
 }
+.status.error {
+  color: var(--stamp);
+  font-weight: 600;
+}
 
 .site-footer {
   margin-top: var(--s6);
@@ -631,7 +635,9 @@ button {
 }
 .saved-io button,
 .saved-note button,
-.share-note button {
+.share-note button,
+.backpack-note button,
+.status button {
   background: var(--paper);
   border: var(--bd);
   color: var(--ink);
@@ -643,18 +649,23 @@ button {
 }
 .saved-io button:hover:not(:disabled),
 .saved-note button:hover,
-.share-note button:hover {
+.share-note button:hover,
+.backpack-note button:hover:not(:disabled),
+.status button:hover {
   background: var(--paper-edge);
 }
 .saved-io button:focus-visible,
 .saved-note button:focus-visible,
-.share-note button:focus-visible {
+.share-note button:focus-visible,
+.backpack-note button:focus-visible,
+.status button:focus-visible {
   outline: var(--focus);
   outline-offset: 2px;
 }
 .save-btn:disabled,
 .saved-io button:disabled,
-.saved-buttons button:disabled {
+.saved-buttons button:disabled,
+.backpack-note button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -1062,6 +1073,13 @@ button {
 }
 .filter-chip:disabled:hover {
   background: var(--paper);
+}
+/* A backpack read that failed, next to the Owned-only toggle it disables. */
+.backpack-note {
+  margin: 0;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--stamp);
 }
 
 .filter-row select {

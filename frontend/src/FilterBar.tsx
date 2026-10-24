@@ -35,6 +35,10 @@ export default function FilterBar({
   onChange,
   ownedEnabled = true,
   ownedDisabledReason,
+  onReloadOwned,
+  ownedBusy = false,
+  ownedFailed = false,
+  ownedRefreshFailed = false,
 }: {
   state: FilterState;
   onChange: (next: FilterState) => void;
@@ -43,6 +47,15 @@ export default function FilterBar({
   ownedEnabled?: boolean;
   /** Shown as the toggle's title when disabled, explaining why. */
   ownedDisabledReason?: string;
+  /** Re-reads the backpack, behind both "Refresh backpack" and the failure note's
+   * Retry. Omitted while signed out, which hides both. */
+  onReloadOwned?: () => void;
+  /** A backpack read is in flight, so the reload controls are disabled. */
+  ownedBusy?: boolean;
+  /** The backpack couldn't be read at all: show the failure note in place of Refresh. */
+  ownedFailed?: boolean;
+  /** A refresh failed but the last good read is still in use. */
+  ownedRefreshFailed?: boolean;
 }) {
   const active = activeFilterCount(state);
 
@@ -136,6 +149,17 @@ export default function FilterBar({
         >
           Owned only
         </button>
+        {onReloadOwned && !ownedFailed && (
+          <button
+            type="button"
+            className="filter-chip"
+            disabled={ownedBusy}
+            title="Re-read your backpack from Steam. It's otherwise cached for about 10 minutes."
+            onClick={onReloadOwned}
+          >
+            {ownedBusy ? "Reading backpack…" : "Refresh backpack"}
+          </button>
+        )}
         {active > 0 && (
           <button
             type="button"
@@ -146,6 +170,19 @@ export default function FilterBar({
           </button>
         )}
       </div>
+
+      {onReloadOwned && ownedFailed ? (
+        <p className="backpack-note" role="alert">
+          Couldn't load your backpack.{" "}
+          <button type="button" disabled={ownedBusy} onClick={onReloadOwned}>
+            Retry
+          </button>
+        </p>
+      ) : onReloadOwned && ownedRefreshFailed ? (
+        <p className="backpack-note" role="status">
+          Couldn't refresh your backpack. Showing the last read.
+        </p>
+      ) : null}
     </div>
   );
 }

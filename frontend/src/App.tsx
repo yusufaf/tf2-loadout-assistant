@@ -14,8 +14,18 @@ import {
   type Cosmetic,
   type Conflict,
   type Me,
-  type Inventory,
 } from "./api";
+import {
+  backpackBusy,
+  backpackFailed,
+  backpackRefreshFailed,
+  ownedDefindexes,
+  ownedDisabledReason,
+  ownedEnabled,
+  reloadRequest,
+  settleBackpack,
+  type BackpackState,
+} from "./backpack";
 import {
   DEFAULT_FILTERS,
   applyFilters,
@@ -49,6 +59,8 @@ function priceTotals(items: Cosmetic[]): string {
 // untouched, even when an edit has emptied the tray again.
 const NO_LOADOUT: Cosmetic[] = [];
 
+const BENCH_UNREACHABLE = "Can't reach the bench. Is the API running?";
+
 export default function App() {
   const [cls, setCls] = useState("Spy");
   const [query, setQuery] = useState("");
@@ -70,32 +82,50 @@ export default function App() {
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
   const [authNote, setAuthNote] = useState("");
-  const [inventory, setInventory] = useState<Inventory | null>(null);
+  // Bumped by the bench Retry to re-run the grid fetch and the mount probes (chat, sign-in,
+  // conflict matrix). The backpack has its own Retry.
+  const [apiRetry, setApiRetry] = useState(0);
+  // Bumped on sign-out so a sign-in probe that was already in flight can't land after it.
+  const meToken = useRef(0);
+  const [backpack, setBackpack] = useState<BackpackState>({ kind: "signed_out" });
+  const backpackToken = useRef(0);
   const saved = useSavedLoadouts(me.signed_in && me.steam_id ? me.steam_id : null);
   const savedLocked = saved.busy || saved.status !== "ready";
   const importRef = useRef<HTMLInputElement>(null);
   const loadToken = useRef(0);
 
-  // Hide the advisor entirely when the API has no LLM configured.
+  // Hide the advisor entirely when the API has no LLM configured. Probed at mount and
+  // again on the bench Retry; it only ever turns the advisor on, so a Retry while the
+  // API is still down can't unmount the panel and its transcript.
   useEffect(() => {
-    fetchChatAvailable().then(setChatAvailable);
-  }, []);
+    fetchChatAvailable().then((ok) => setChatAvailable((prev) => prev || ok));
+  }, [apiRetry]);
 
-  // Probe sign-in state at mount; an absent/unconfigured auth service just reads as
-  // signed-out, same as the chat-availability probe above.
+  // Probe sign-in state at mount and on the bench Retry; an absent/unconfigured auth
+  // service just reads as signed-out, same as the chat-availability probe above. A
+  // signed-out answer never overrides a signed-in one: while the API is down `fetchMe`
+  // folds to signed-out, and detecting an expired session is out of scope.
   useEffect(() => {
-    fetchMe().then(setMe);
-  }, []);
+    const token = meToken.current;
+    fetchMe().then((m) => {
+      if (token !== meToken.current) return;
+      setMe((prev) => (prev.signed_in && !m.signed_in ? prev : m));
+    });
+  }, [apiRetry]);
 
   // Fetch the backpack once signed in. Not re-run on every render -- the API caches
-  // it server-side for ~10min, and the filter toggle has its own refresh path if we
-  // ever add one.
+  // it server-side for ~10min, and `reloadBackpack` is the way to re-read it. The token
+  // drops a read that lands after sign-out or a newer reload.
   useEffect(() => {
+    const token = ++backpackToken.current;
     if (!me.signed_in) {
-      setInventory(null);
+      setBackpack({ kind: "signed_out" });
       return;
     }
-    fetchInventory().then(setInventory);
+    setBackpack({ kind: "loading" });
+    fetchInventory().then((r) => {
+      if (token === backpackToken.current) setBackpack(settleBackpack({ kind: "loading" }, r));
+    });
   }, [me.signed_in]);
 
   // Read ?auth=failed left by a rejected /auth/steam/return redirect, then strip it.
@@ -106,14 +136,14 @@ export default function App() {
     history.replaceState(null, "", withoutParam(location, "auth"));
   }, []);
 
-  // The conflict matrix is static, so fetch it once and filter locally afterwards. An
-  // empty matrix still detects same-region clashes, so a failure degrades rather than
-  // breaks.
+  // The conflict matrix is static, so fetch it at mount and on the bench Retry, and
+  // filter locally afterwards. An empty matrix still detects same-region clashes, so a
+  // failure degrades rather than breaks; a failed re-fetch keeps the matrix we have.
   useEffect(() => {
     fetchConflictMatrix()
       .then(setMatrix)
-      .catch(() => setMatrix({}));
-  }, []);
+      .catch(() => {});
+  }, [apiRetry]);
 
   // Load a shared build from ?build=... once on mount, then strip the param. It tracks
   // its own loading flag rather than `status`, which belongs to the cosmetics grid --
@@ -159,13 +189,13 @@ export default function App() {
           setCosmetics(items);
           setStatus(items.length ? "" : "No cosmetics match.");
         })
-        .catch(() => active && setStatus("Can't reach the bench. Is the API running?"));
+        .catch(() => active && setStatus(BENCH_UNREACHABLE));
     }, 200);
     return () => {
       active = false;
       clearTimeout(t);
     };
-  }, [cls, query]);
+  }, [cls, query, apiRetry]);
 
   // Re-check conflicts whenever the loadout changes.
   useEffect(() => {
@@ -185,26 +215,24 @@ export default function App() {
     [loadout]
   );
 
-  const owned = useMemo(
-    () => new Set(inventory?.status === "ok" ? inventory.defindexes : []),
-    [inventory]
-  );
-  const ownedEnabled = inventory?.status === "ok";
-  const ownedDisabledReason = !me.signed_in
-    ? "Sign in through Steam to filter by what you own"
-    : inventory?.status === "private"
-      ? "Your backpack is set to private on Steam"
-      : inventory?.status === "not_found"
-        ? "Couldn't find a TF2 backpack for this SteamID"
-        : inventory?.status === "error"
-          ? "Couldn't reach Steam's inventory API"
-          : "Loading your backpack…";
+  const owned = useMemo(() => new Set(ownedDefindexes(backpack)), [backpack]);
+  const canFilterOwned = ownedEnabled(backpack);
 
   // If the toggle was on and the backpack becomes unavailable (sign-out, a Steam
   // privacy change), turn it back off rather than leave the grid silently empty.
   useEffect(() => {
-    if (!ownedEnabled) setFilters((f) => (f.ownedOnly ? { ...f, ownedOnly: false } : f));
-  }, [ownedEnabled]);
+    if (!canFilterOwned) setFilters((f) => (f.ownedOnly ? { ...f, ownedOnly: false } : f));
+  }, [canFilterOwned]);
+
+  function reloadBackpack() {
+    const req = reloadRequest(backpack);
+    if (!req) return;
+    const token = ++backpackToken.current;
+    setBackpack(req.next);
+    fetchInventory(req.refresh).then((r) => {
+      if (token === backpackToken.current) setBackpack(settleBackpack(req.next, r));
+    });
+  }
 
   const entries = useMemo(
     () => applyFilters(cosmetics, filters, loadout, matrix, owned),
@@ -307,7 +335,14 @@ export default function App() {
   }
 
   async function handleSignOut() {
-    await signOut();
+    setAuthNote("");
+    try {
+      await signOut();
+    } catch {
+      setAuthNote("Couldn't sign out. Check your connection and try again.");
+      return;
+    }
+    meToken.current++;
     setMe({ signed_in: false });
   }
 
@@ -343,7 +378,11 @@ export default function App() {
             </a>
           )}
         </div>
-        {authNote && <p className="auth-note">{authNote}</p>}
+        {authNote && (
+          <p className="auth-note" role="alert">
+            {authNote}
+          </p>
+        )}
       </header>
 
       <div className="bench">
@@ -374,11 +413,22 @@ export default function App() {
           <FilterBar
             state={filters}
             onChange={setFilters}
-            ownedEnabled={ownedEnabled}
-            ownedDisabledReason={ownedDisabledReason}
+            ownedEnabled={canFilterOwned}
+            ownedDisabledReason={ownedDisabledReason(backpack)}
+            onReloadOwned={backpack.kind === "signed_out" ? undefined : reloadBackpack}
+            ownedBusy={backpackBusy(backpack)}
+            ownedFailed={backpackFailed(backpack)}
+            ownedRefreshFailed={backpackRefreshFailed(backpack)}
           />
 
-          {status ? (
+          {status === BENCH_UNREACHABLE ? (
+            <p className="status error" role="alert">
+              {status}{" "}
+              <button type="button" onClick={() => setApiRetry((n) => n + 1)}>
+                Retry
+              </button>
+            </p>
+          ) : status ? (
             <p className="status">{status}</p>
           ) : entries.length === 0 ? (
             <p className="status">No cosmetics match these filters.</p>
