@@ -116,7 +116,7 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
       return;
     }
     const key = { provider: draftProvider, apiKey };
-    saveLlmKey(key);
+    saveLlmKey(key, true);
     setLlmKey(key);
     setDraftKey("");
     setError("");

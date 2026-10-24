@@ -5,11 +5,23 @@
  * and is gone when the request is. Same storage conventions as `savedLoadouts.ts`:
  * a versioned envelope, and every storage call wrapped so private mode or a full
  * quota degrades to "no key" rather than an exception in the panel.
+ *
+ * By default the key is remembered in `localStorage`. The player can instead keep
+ * it for this tab only, in `sessionStorage`: it survives a reload and is gone when
+ * the tab closes. Either way it sits in plaintext browser storage that any script
+ * on the page can read, which is why the tab-only option exists for shared
+ * computers. Which store holds the key is what `remember` means; the envelope is
+ * the same in both.
  */
 
 export interface LlmKey {
   provider: string;
   apiKey: string;
+}
+
+export interface SavedLlmKey extends LlmKey {
+  /** False when the key is kept in this tab's `sessionStorage` only. */
+  remember: boolean;
 }
 
 interface StoredKey {
@@ -49,26 +61,50 @@ export function parseStoredKey(raw: string | null): LlmKey | null {
   }
 }
 
-export function loadLlmKey(): LlmKey | null {
+// Thunks, not the globals themselves, so a store that isn't defined at all throws
+// inside the caller's try rather than at the call site.
+const saved = () => localStorage;
+const tabOnly = () => sessionStorage;
+
+function read(store: () => Storage): LlmKey | null {
   try {
-    return parseStoredKey(localStorage.getItem(STORAGE_KEY));
+    return parseStoredKey(store().getItem(STORAGE_KEY));
   } catch {
     return null;
   }
 }
 
-export function saveLlmKey(key: LlmKey): void {
+function write(store: () => Storage, value: string): void {
   try {
-    localStorage.setItem(STORAGE_KEY, serializeKey(key));
+    store().setItem(STORAGE_KEY, value);
   } catch {
     // Quota exceeded / private mode — the key still works for this page load.
   }
 }
 
-export function clearLlmKey(): void {
+function remove(store: () => Storage): void {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    store().removeItem(STORAGE_KEY);
   } catch {
     // Nothing to do; if it can't be read it can't be leaked either.
   }
+}
+
+export function loadLlmKey(): SavedLlmKey | null {
+  const tab = read(tabOnly);
+  if (tab) return { ...tab, remember: false };
+  const kept = read(saved);
+  return kept ? { ...kept, remember: true } : null;
+}
+
+export function saveLlmKey(key: LlmKey, remember: boolean): void {
+  write(remember ? saved : tabOnly, serializeKey(key));
+  // Even if the write failed: the other copy is the key being replaced, and a
+  // tab-only choice must not leave one behind in shared storage.
+  remove(remember ? tabOnly : saved);
+}
+
+export function clearLlmKey(): void {
+  remove(saved);
+  remove(tabOnly);
 }
