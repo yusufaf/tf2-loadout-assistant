@@ -29,6 +29,30 @@ export function benchForSuggestion(
   };
 }
 
+/** The bench before an advisor Equip, and the bench that Equip made. */
+export interface AdvisorUndo {
+  applied: Bench;
+  prev: Bench;
+}
+
+/** Undo is offered only while the bench is still exactly what Equip made. Every tray
+ * edit makes a new array, so identity (not contents) is what retires it. */
+export function canUndoAdvisor(undo: AdvisorUndo | null, bench: Bench): boolean {
+  return (
+    undo !== null && undo.applied.loadout === bench.loadout && undo.applied.cls === bench.cls
+  );
+}
+
+/** Keep Undo pointed at the tray when the catalog refresh replaces `shown` with `merged`. */
+export function rebaseAdvisorUndo(
+  undo: AdvisorUndo | null,
+  shown: Cosmetic[],
+  merged: Cosmetic[]
+): AdvisorUndo | null {
+  if (!undo || undo.applied.loadout !== shown) return undo;
+  return { ...undo, applied: { ...undo.applied, loadout: merged } };
+}
+
 /** Click-to-toggle an item on the bench; null when adding it would overflow. */
 export function toggleEquip(loadout: Cosmetic[], item: Cosmetic): Cosmetic[] | null {
   if (loadout.some((c) => c.defindex === item.defindex)) {

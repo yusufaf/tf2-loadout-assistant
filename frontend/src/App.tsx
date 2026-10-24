@@ -30,9 +30,11 @@ import {
   DEFAULT_FILTERS,
   applyFilters,
   benchForSuggestion,
+  canUndoAdvisor,
   clashingIds,
+  rebaseAdvisorUndo,
   toggleEquip,
-  type Bench,
+  type AdvisorUndo,
   type FilterState,
 } from "./filters";
 import { MAX_EQUIPPED, type ConflictMatrix } from "./conflicts";
@@ -83,9 +85,8 @@ export default function App() {
   const [shareNote, setShareNote] = useState("");
   // The bench before the last advisor Equip. Offered only while `applied` is still the
   // bench: any later edit makes a new array, or a new class, and retires the Undo.
-  const [advisorUndo, setAdvisorUndo] = useState<{ applied: Bench; prev: Bench } | null>(
-    null
-  );
+  const [advisorUndo, setAdvisorUndo] = useState<AdvisorUndo | null>(null);
+  const [chatEpoch, setChatEpoch] = useState(0);
   const [pinnedNotes, setPinnedNotes] = useState<string[]>([]);
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
@@ -287,18 +288,27 @@ export default function App() {
     setLoadout(next.loadout);
     setAdvisorUndo({ applied: next, prev });
     // The suggestion may come from a conversation saved days ago.
-    void refreshShown(next.loadout, token);
+    void refreshShown(next.loadout, token, "Couldn't refresh prices — showing the advisor's copy.");
   }
   function undoAdvisorEquip() {
     if (!advisorUndo) return;
-    setCls(advisorUndo.prev.cls);
-    setLoadout(advisorUndo.prev.loadout);
+    const { prev } = advisorUndo;
+    const token = ++loadToken.current;
+    setCls(prev.cls);
+    setLoadout(prev.loadout);
+    setAdvisorUndo(null);
+    // `prev` can be a Load whose own refresh was cut short by the Equip. Never refresh an
+    // empty tray: that would replace NO_LOADOUT, which the shared-link loader keys on.
+    if (prev.loadout.length > 0) {
+      void refreshShown(prev.loadout, token, "Couldn't refresh prices — showing the earlier copy.");
+    }
+  }
+  function changeClass(c: string) {
+    setCls(c);
+    // Switching back later must not revive an Undo that would also revert the class.
     setAdvisorUndo(null);
   }
-  const canUndoAdvisor =
-    advisorUndo !== null &&
-    advisorUndo.applied.loadout === loadout &&
-    advisorUndo.applied.cls === cls;
+  const undoOffered = canUndoAdvisor(advisorUndo, { cls, loadout });
 
   function saveCurrent() {
     const name = window.prompt("Name this loadout:", `${cls} build`);
@@ -315,20 +325,18 @@ export default function App() {
     // Show the saved copy at once, then swap in the catalog's current prices and images.
     const shown = items.slice(0, MAX_EQUIPPED);
     setLoadout(shown);
-    await refreshShown(shown, token);
+    await refreshShown(shown, token, "Couldn't refresh prices — showing the saved copy.");
   }
 
   /** Swap a just-shown stored copy for the catalog's current prices and images. */
-  async function refreshShown(shown: Cosmetic[], token: number) {
+  async function refreshShown(shown: Cosmetic[], token: number, failNote: string) {
     try {
       const { items: fresh } = await lookupCosmetics(shown.map((c) => c.defindex));
       const { items: merged, dropped } = mergeFresh(shown, fresh);
       // Identity check: an equip/unequip, advisor equip or another Load since replaced
       // the array, and the player's edit wins over the refresh.
       setLoadout((cur) => (cur === shown ? merged : cur));
-      setAdvisorUndo((u) =>
-        u && u.applied.loadout === shown ? { ...u, applied: { ...u.applied, loadout: merged } } : u
-      );
+      setAdvisorUndo((u) => rebaseAdvisorUndo(u, shown, merged));
       if (token === loadToken.current && dropped) {
         flashNote(
           `${dropped} item${dropped === 1 ? "" : "s"} in this loadout ${dropped === 1 ? "is" : "are"} no longer in the catalog.`
@@ -336,7 +344,7 @@ export default function App() {
       }
     } catch {
       if (token === loadToken.current) {
-        flashNote("Couldn't refresh prices — showing the saved copy.");
+        flashNote(failNote);
       }
     }
   }
@@ -381,8 +389,9 @@ export default function App() {
     }
     meToken.current++;
     // The advisor's history can hold this player's backpack results; don't leave it for
-    // whoever uses the browser next. ChatPanel is keyed on the account, so it remounts empty.
+    // whoever uses the browser next. Bumping ChatPanel's key remounts it empty.
     saveTranscript(EMPTY_TRANSCRIPT);
+    setChatEpoch((n) => n + 1);
     setMe({ signed_in: false });
   }
 
@@ -433,7 +442,7 @@ export default function App() {
                 key={c}
                 className="class-chip"
                 aria-pressed={c === cls}
-                onClick={() => setCls(c)}
+                onClick={() => changeClass(c)}
               >
                 <img className="class-icon" src={`/classes/${c.toLowerCase()}.png`} alt="" />
                 {c}
@@ -602,7 +611,7 @@ export default function App() {
           )}
 
           {shareNote && <p className="share-note">{shareNote}</p>}
-          {canUndoAdvisor && (
+          {undoOffered && (
             <p className="share-note" role="status">
               Equipped the advisor's pick.{" "}
               <button onClick={undoAdvisorEquip}>Undo</button>{" "}
@@ -706,7 +715,7 @@ export default function App() {
 
           {chatAvailable && (
             <ChatPanel
-              key={me.steam_id ?? "signed-out"}
+              key={chatEpoch}
               cls={cls}
               loadout={loadout}
               onEquip={equipSuggestion}

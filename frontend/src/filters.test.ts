@@ -3,6 +3,8 @@ import {
   DEFAULT_FILTERS,
   applyFilters,
   benchForSuggestion,
+  canUndoAdvisor,
+  rebaseAdvisorUndo,
   activeFilterCount,
   clashingIds,
   toggleEquip,
@@ -357,5 +359,39 @@ describe("benchForSuggestion", () => {
   it("returns a fresh array so the caller can tell it apart from later edits", () => {
     const items = [MASK];
     expect(benchForSuggestion(SNIPER_BENCH, items, "Spy").loadout).not.toBe(items);
+  });
+});
+
+describe("advisor Undo", () => {
+  const before = { cls: "Sniper", loadout: [FEDORA] };
+  const applied = benchForSuggestion(before, [MASK], "Spy");
+  const undo = { applied, prev: before };
+
+  it("is offered while the bench is still exactly what Equip made", () => {
+    expect(canUndoAdvisor(undo, applied)).toBe(true);
+  });
+
+  it("is retired by any tray edit, even one with the same items", () => {
+    expect(canUndoAdvisor(undo, { cls: "Spy", loadout: [...applied.loadout] })).toBe(false);
+  });
+
+  it("is retired by a class change", () => {
+    expect(canUndoAdvisor(undo, { cls: "Scout", loadout: applied.loadout })).toBe(false);
+  });
+
+  it("is never offered when there is nothing to undo", () => {
+    expect(canUndoAdvisor(null, applied)).toBe(false);
+  });
+
+  it("follows the tray when the catalog refresh swaps in fresh copies", () => {
+    const merged = [{ ...MASK, name: "Fresh" }];
+    const rebased = rebaseAdvisorUndo(undo, applied.loadout, merged);
+    expect(canUndoAdvisor(rebased, { cls: "Spy", loadout: merged })).toBe(true);
+    expect(rebased?.prev).toBe(before);
+  });
+
+  it("ignores a refresh for some other array", () => {
+    expect(rebaseAdvisorUndo(undo, [FEDORA], [FEDORA])).toBe(undo);
+    expect(rebaseAdvisorUndo(null, applied.loadout, [])).toBeNull();
   });
 });
