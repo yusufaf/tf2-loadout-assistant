@@ -44,8 +44,8 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
   const [transcript, setTranscript] = useState<Transcript>(() => loadTranscript());
   // The in-flight message: shown in the log, but only joins the transcript with its reply.
   const [pending, setPending] = useState<string | null>(null);
+  const busy = pending !== null;
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
   // The final event has arrived, so the turn will be kept whatever happens: Stop is hidden.
   const [replied, setReplied] = useState(false);
   const [progress, setProgress] = useState("");
@@ -146,7 +146,7 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
   // Keep the newest turn in view as the conversation grows.
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-  }, [transcript.turns, pending, busy]);
+  }, [transcript.turns, pending]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -161,7 +161,6 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
     setProgress("");
     setReplied(false);
     setPending(text);
-    setBusy(true);
 
     // The server holds no session, so the class travels with the message; the tray
     // itself travels structurally as defindexes, not flattened into the prompt.
@@ -233,7 +232,6 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
       }
     } finally {
       setPending(null);
-      setBusy(false);
       setReplied(false);
       setProgress("");
       abortRef.current = null;
