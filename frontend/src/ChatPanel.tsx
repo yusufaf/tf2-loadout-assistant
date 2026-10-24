@@ -28,9 +28,10 @@ const TOOL_LABELS: Record<string, string> = {
 };
 
 interface Props {
-  /** SteamID the saved conversation belongs to, or null when signed out. Fixed for the
-   * panel's lifetime: the parent keys the panel on it. */
-  owner: string | null;
+  /** Who the page thinks is signed in, read once at mount to pick which saved
+   * conversation to show. What a saved conversation is stamped with comes from the
+   * server instead (see `chatSession.ts`). */
+  viewer: string | null;
   cls: string;
   loadout: Cosmetic[];
   /** `forCls` is the class the suggestion was asked for, when known. */
@@ -43,8 +44,8 @@ const GREETING =
 const KEY_NOTE =
   "Your key stays in this browser. It's sent with each message and the server never keeps it.";
 
-export default function ChatPanel({ owner, cls, loadout, onEquip }: Props) {
-  const [transcript, setTranscript] = useState<Transcript>(() => loadTranscript(owner));
+export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
+  const [transcript, setTranscript] = useState<Transcript>(() => loadTranscript(viewer));
   // The in-flight message: shown in the log, but only joins the transcript with its reply.
   const [pending, setPending] = useState<string | null>(null);
   const busy = pending !== null;
@@ -66,7 +67,7 @@ export default function ChatPanel({ owner, cls, loadout, onEquip }: Props) {
   const [draftProvider, setDraftProvider] = useState(llmKey?.provider ?? "");
   const [draftKey, setDraftKey] = useState("");
 
-  useEffect(() => saveTranscript(transcript, owner), [transcript, owner]);
+  useEffect(() => saveTranscript(transcript, viewer), [transcript, viewer]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -134,7 +135,8 @@ export default function ChatPanel({ owner, cls, loadout, onEquip }: Props) {
   }
 
   function newChat() {
-    setTranscript(EMPTY_TRANSCRIPT);
+    // Keeps the owner so clearing can remove the stored copy it was saved under.
+    setTranscript((t) => ({ ...EMPTY_TRANSCRIPT, owner: t.owner }));
     setError("");
   }
 
@@ -225,7 +227,8 @@ export default function ChatPanel({ owner, cls, loadout, onEquip }: Props) {
               suggestions: items,
               conflicts: reply.conflicts ?? [],
             },
-            reply.history ?? []
+            reply.history ?? [],
+            reply.backpack_owner
           )
         );
       } else {

@@ -91,9 +91,12 @@ export default function App() {
   const [pinnedNotes, setPinnedNotes] = useState<string[]>([]);
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
-  // The first sign-in probe has answered. The advisor waits for it, because its saved
-  // conversation is only shown to the identity that saved it.
+  // The first sign-in probe has answered. The advisor waits for it, because a saved
+  // conversation is only shown to the player whose backpack it saw.
   const [meKnown, setMeKnown] = useState(false);
+  // Bumped on sign-out to remount ChatPanel empty. Not keyed on the SteamID: a bench
+  // Retry that turns a failed probe into signed-in would remount it mid-turn.
+  const [chatEpoch, setChatEpoch] = useState(0);
   const [authNote, setAuthNote] = useState("");
   // Bumped by the bench Retry to re-run the grid fetch and the mount probes (chat, sign-in,
   // conflict matrix). The backpack has its own Retry.
@@ -397,12 +400,11 @@ export default function App() {
     meToken.current++;
     // Don't leave the next person on this browser the advisor's history, which can hold
     // this player's backpack results, or their key, which would bill the player's
-    // provider. Both are cleared before the new identity remounts ChatPanel, which
-    // reads them at mount.
+    // provider. Both are cleared before the remount, since ChatPanel reads them at mount.
     clearTranscript();
     clearLlmKey();
+    setChatEpoch((n) => n + 1);
     setMe({ signed_in: false });
-    setMeKnown(true);
   }
 
   function onImportFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -725,8 +727,8 @@ export default function App() {
 
           {chatAvailable && meKnown && (
             <ChatPanel
-              key={steamId ?? "signed-out"}
-              owner={steamId}
+              key={chatEpoch}
+              viewer={steamId}
               cls={cls}
               loadout={loadout}
               onEquip={equipSuggestion}

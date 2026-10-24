@@ -324,6 +324,9 @@ class ChatResponse(BaseModel):
     suggested_defindexes: list[int]
     conflicts: list[ConflictOut]
     history: list[dict]
+    # Whose backpack this turn's history may contain, so the client can store the
+    # transcript under the identity the server actually used rather than its own guess.
+    backpack_owner: str | None
 
 
 class LoadoutOut(BaseModel):
@@ -498,6 +501,9 @@ def create_app(
         result = await inventory.fetch(steam_id)
         return result.defindexes if result.status == "ok" else None
 
+    def _backpack_owner(request: Request, owned: frozenset[int] | None) -> str | None:
+        return request.session.get("steam_id") if owned is not None else None
+
     def _throttle(limiter: RateLimiter | None, key: str) -> None:
         wait = limiter.hit(key) if limiter is not None else None
         if wait is not None:
@@ -644,6 +650,7 @@ def create_app(
             suggested_defindexes=suggested,
             conflicts=conflicts,
             history=to_jsonable_python(fit_history(result.all_messages())),
+            backpack_owner=_backpack_owner(request, owned),
         )
 
     @app.post("/chat/stream")
@@ -681,6 +688,7 @@ def create_app(
                         "suggested_defindexes": suggested,
                         "conflicts": [c.model_dump() for c in conflicts],
                         "history": to_jsonable_python(fit_history(result.all_messages())),
+                        "backpack_owner": _backpack_owner(request, owned),
                     }
                 yield json.dumps(event) + "\n"
 

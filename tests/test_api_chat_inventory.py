@@ -138,3 +138,21 @@ def test_chat_stream_also_receives_owned_inventory():
     final = lines[-1]
     assert final["kind"] == "final"
     assert "owns 1" in final["message"]
+
+def test_reply_names_the_backpack_it_saw():
+    stub = _StubInventory(InventoryResult("ok", frozenset({1}), 0.0))
+    client = _signed_in_client(inventory=stub)
+    r = client.post("/chat", json={"message": "dress me"}, headers=LLM_HEADERS)
+    assert r.json()["backpack_owner"] == STEAM_ID
+    r = client.post("/chat/stream", json={"message": "dress me"}, headers=LLM_HEADERS)
+    final = json.loads(r.text.splitlines()[-1])
+    assert final["backpack_owner"] == STEAM_ID
+
+
+def test_reply_names_no_owner_when_no_backpack_was_seen():
+    signed_out = _client(auth=_StubAuth(), inventory=_StubInventory(InventoryResult("ok", frozenset({1}), 0.0)))
+    r = signed_out.post("/chat", json={"message": "dress me"}, headers=LLM_HEADERS)
+    assert r.json()["backpack_owner"] is None
+    private = _signed_in_client(inventory=_StubInventory(InventoryResult("private", frozenset(), 0.0)))
+    r = private.post("/chat/stream", json={"message": "dress me"}, headers=LLM_HEADERS)
+    assert json.loads(r.text.splitlines()[-1])["backpack_owner"] is None

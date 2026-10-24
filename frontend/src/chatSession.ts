@@ -13,11 +13,13 @@
  * the key is never in it.
  *
  * It does hold the advisor's tool results, which can list a player's backpack, so it is
- * stamped with the SteamID it was saved under (null when signed out) and only that same
- * identity reads it back. A signed-out conversation has no backpack in it, so signing
- * in carries it over. One slot per browser: another identity sees an empty panel and
- * leaves the stored copy alone until its own first exchange overwrites it, so a failed
- * sign-in probe or an expired session can't delete a player's conversation.
+ * stamped with the SteamID whose backpack the server actually used (`backpack_owner` on
+ * each reply) -- never the page's own idea of who is signed in, which `fetchMe` folds
+ * to signed-out on any API failure while the cookie still works. Only that viewer reads
+ * it back; a transcript no backpack ever reached (owner null) is readable by anyone, so
+ * a signed-out conversation carries over on sign-in. One slot per browser: another
+ * viewer sees an empty panel and leaves the stored copy alone until their own first
+ * exchange overwrites it.
  */
 
 import {
@@ -47,9 +49,11 @@ export interface Transcript {
   turns: Turn[];
   /** Opaque server state, handed straight back each turn. */
   history: unknown[];
+  /** SteamID whose backpack `history` has seen, or null if none has. */
+  owner: string | null;
 }
 
-export const EMPTY_TRANSCRIPT: Transcript = { turns: [], history: [] };
+export const EMPTY_TRANSCRIPT: Transcript = { turns: [], history: [], owner: null };
 
 export const TRANSCRIPT_KEY = "tf2-chat/v1";
 
@@ -62,11 +66,14 @@ export function appendExchange(
   t: Transcript,
   userText: string,
   bot: Turn,
-  history: unknown[]
+  history: unknown[],
+  backpackOwner: string | null = null
 ): Transcript {
   return {
     turns: [...t.turns, { role: "user" as const, text: userText }, bot].slice(-MAX_TURNS),
     history,
+    // Never back to null: the server's history still holds the earlier backpack.
+    owner: backpackOwner ?? t.owner,
   };
 }
 
@@ -120,8 +127,9 @@ interface StoredTranscript {
   history: unknown[];
 }
 
-export function serializeTranscript(t: Transcript, owner: string | null): string {
-  const file: StoredTranscript = { version: 1, owner, turns: t.turns, history: t.history };
+export function serializeTranscript(t: Transcript): string {
+  const { owner, turns, history } = t;
+  const file: StoredTranscript = { version: 1, owner, turns, history };
   return JSON.stringify(file);
 }
 
@@ -129,8 +137,25 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function readableBy(storedOwner: unknown, owner: string | null): boolean {
-  return storedOwner === owner || storedOwner === null;
+function readableBy(owner: string | null, viewer: string | null): boolean {
+  return owner === null || owner === viewer;
+}
+
+type Envelope = Record<string, unknown> & { owner: string | null };
+
+/** The stored envelope, or null when nothing valid is stored. */
+function readEnvelope(raw: string | null): Envelope | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!isObject(parsed) || parsed.version !== 1) return null;
+  const owner = parsed.owner;
+  if (owner !== null && typeof owner !== "string") return null;
+  return { ...parsed, owner };
 }
 
 function parseConflict(v: unknown): Conflict | null {
@@ -163,44 +188,26 @@ function parseTurn(v: unknown): Turn | null {
 
 /** All-or-nothing on structure: dropping one malformed turn would leave a question
  * without its reply. Lenient within a turn, like `savedLoadouts`' imports. */
-export function parseTranscript(raw: string | null, owner: string | null): Transcript {
-  if (!raw) return EMPTY_TRANSCRIPT;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return EMPTY_TRANSCRIPT;
-  }
-  if (!isObject(parsed) || parsed.version !== 1) return EMPTY_TRANSCRIPT;
-  if (!readableBy(parsed.owner, owner)) return EMPTY_TRANSCRIPT;
-  if (!Array.isArray(parsed.history) || !Array.isArray(parsed.turns)) {
+export function parseTranscript(raw: string | null, viewer: string | null): Transcript {
+  const file = readEnvelope(raw);
+  if (!file || !readableBy(file.owner, viewer)) return EMPTY_TRANSCRIPT;
+  if (!Array.isArray(file.history) || !Array.isArray(file.turns)) {
     return EMPTY_TRANSCRIPT;
   }
   const turns: Turn[] = [];
-  for (const raw of parsed.turns) {
+  for (const raw of file.turns) {
     const turn = parseTurn(raw);
     if (!turn) return EMPTY_TRANSCRIPT;
     turns.push(turn);
   }
-  return { turns: turns.slice(-MAX_TURNS), history: parsed.history };
+  return { turns: turns.slice(-MAX_TURNS), history: file.history, owner: file.owner };
 }
 
-export function loadTranscript(owner: string | null): Transcript {
+export function loadTranscript(viewer: string | null): Transcript {
   try {
-    return parseTranscript(localStorage.getItem(TRANSCRIPT_KEY), owner);
+    return parseTranscript(localStorage.getItem(TRANSCRIPT_KEY), viewer);
   } catch {
     return EMPTY_TRANSCRIPT;
-  }
-}
-
-/** Unreadable data has no owner to protect, so anyone may clear it. */
-function storedOwner(raw: string | null): unknown {
-  if (!raw) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return isObject(parsed) && parsed.owner !== undefined ? parsed.owner : null;
-  } catch {
-    return null;
   }
 }
 
@@ -213,24 +220,30 @@ export function clearTranscript(): void {
   }
 }
 
-/** An empty transcript forgets only a conversation `owner` could see, since a panel
- * mounted as someone else starts empty too. */
-export function saveTranscript(t: Transcript, owner: string | null): void {
-  if (t.turns.length === 0) {
-    try {
-      if (readableBy(storedOwner(localStorage.getItem(TRANSCRIPT_KEY)), owner)) {
-        localStorage.removeItem(TRANSCRIPT_KEY);
-      }
-    } catch {
-      // Storage is unusable; there is nothing saved to clear.
+/** Remove the stored copy only if it is this panel's to remove: its own, one this
+ * viewer could read, or nothing valid. A panel mounted for someone else starts empty
+ * too, and must not delete their conversation. */
+function dropStoredCopy(t: Transcript, viewer: string | null): void {
+  try {
+    const file = readEnvelope(localStorage.getItem(TRANSCRIPT_KEY));
+    if (!file || file.owner === t.owner || readableBy(file.owner, viewer)) {
+      localStorage.removeItem(TRANSCRIPT_KEY);
     }
+  } catch {
+    // Storage is unusable; there is nothing saved to clear.
+  }
+}
+
+export function saveTranscript(t: Transcript, viewer: string | null): void {
+  if (t.turns.length === 0) {
+    dropStoredCopy(t, viewer);
     return;
   }
   try {
-    localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t, owner));
+    localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t));
   } catch {
     // Quota exceeded: an older conversation coming back on reload would be worse
     // than none, so drop the stale copy.
-    clearTranscript();
+    dropStoredCopy(t, viewer);
   }
 }
