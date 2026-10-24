@@ -229,7 +229,7 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
               conflicts: reply.conflicts ?? [],
             },
             reply.history ?? [],
-            reply.backpack_owner
+            reply.steam_id
           )
         );
       } else {

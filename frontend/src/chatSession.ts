@@ -13,11 +13,11 @@
  * the key is never in it.
  *
  * It does hold the advisor's tool results, which can list a player's backpack, so it is
- * stamped with the SteamID whose backpack the server actually used (`backpack_owner` on
- * each reply) -- never the page's own idea of who is signed in, which `fetchMe` folds
- * to signed-out on any API failure while the cookie still works. Only that viewer reads
- * it back; a transcript no backpack ever reached (owner null) is readable by anyone, so
- * a signed-out conversation carries over on sign-in. One slot per browser: another
+ * stamped with the SteamID the server says each turn ran as (`steam_id` on each reply)
+ * -- never the page's own idea of who is signed in, which `fetchMe` folds to signed-out
+ * on any API failure while the cookie still works. Only that viewer reads it back; a
+ * transcript made entirely signed out (owner null) is readable by anyone, so it carries
+ * over on sign-in. One slot per browser: another
  * viewer sees an empty panel and leaves the stored copy alone until their own first
  * exchange overwrites it. Only an explicit New chat or Sign out removes it, never an
  * empty panel, which can't tell "cleared" from "loaded for someone else".
@@ -50,14 +50,14 @@ export interface Transcript {
   turns: Turn[];
   /** Opaque server state, handed straight back each turn. */
   history: unknown[];
-  /** SteamID whose backpack `history` has seen, or null if none has. */
+  /** SteamID the turns in `history` ran as, or null if all ran signed out. */
   owner: string | null;
 }
 
 export const EMPTY_TRANSCRIPT: Transcript = { turns: [], history: [], owner: null };
 
-/** Owner of a history that has seen more than one player's backpack. Not a SteamID, so
- * no viewer can read it back. */
+/** Owner of a history made under more than one account. Not a SteamID, so no viewer
+ * could read it back, and it is never saved. */
 export const MIXED_OWNER = "mixed";
 
 export const TRANSCRIPT_KEY = "tf2-chat/v1";
@@ -72,17 +72,17 @@ export function appendExchange(
   userText: string,
   bot: Turn,
   history: unknown[],
-  backpackOwner: string | null = null
+  ranAs: string | null = null
 ): Transcript {
   return {
     turns: [...t.turns, { role: "user" as const, text: userText }, bot].slice(-MAX_TURNS),
     history,
-    owner: mergeOwner(t.owner, backpackOwner),
+    owner: mergeOwner(t.owner, ranAs),
   };
 }
 
 /** Never back to null, and never over to another player: the server's history still
- * holds the earlier backpack either way. */
+ * holds the earlier turns either way. */
 function mergeOwner(prev: string | null, seen: string | null): string | null {
   if (seen === null || seen === prev) return prev;
   return prev === null ? seen : MIXED_OWNER;
@@ -235,6 +235,10 @@ export function clearTranscript(): void {
  * and their conversation is still in the slot. */
 export function saveTranscript(t: Transcript): void {
   if (t.turns.length === 0) return;
+  if (t.owner === MIXED_OWNER) {
+    clearTranscript();
+    return;
+  }
   try {
     localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t));
   } catch {

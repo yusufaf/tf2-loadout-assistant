@@ -105,7 +105,7 @@ export interface ChatReply {
   suggested_defindexes: number[];
   conflicts: Conflict[];
   history: unknown[];
-  backpack_owner: string | null;
+  steam_id: string | null;
 }
 
 /** The API is up but the chat service failed to build, so the panel should stay hidden. */
@@ -345,8 +345,8 @@ export interface ChatStreamEvent {
   suggested_defindexes?: number[];
   conflicts?: Conflict[];
   history?: unknown[];
-  /** On `final`: the SteamID whose backpack this turn could see, or null. */
-  backpack_owner?: string | null;
+  /** On `final`: the SteamID this turn ran as, or null when signed out. */
+  steam_id?: string | null;
   detail?: string;
   /** Set on an `error` event the player can fix themselves: the provider said 401. */
   code?: "bad_key";

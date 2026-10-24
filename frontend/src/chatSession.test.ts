@@ -69,7 +69,7 @@ const EXCHANGE: Transcript = {
   history: [{ kind: "request" }, { kind: "response" }],
   owner: null,
 };
-// The same conversation after the server reported reading A's backpack.
+// The same conversation after the server reported running it as A.
 const OF_A: Transcript = { ...EXCHANGE, owner: A };
 
 const FINAL: ChatStreamEvent = { kind: "final", message: "hi", history: [] };
@@ -88,14 +88,14 @@ describe("appendExchange", () => {
     });
   });
 
-  it("takes the backpack owner the server reports and never drops it", () => {
+  it("takes the account the server says the turn ran as and never drops it", () => {
     const seen = appendExchange(EMPTY_TRANSCRIPT, "q", { role: "bot", text: "a" }, [], A);
     expect(seen.owner).toBe(A);
     expect(appendExchange(seen, "q2", { role: "bot", text: "a2" }, [], null).owner).toBe(A);
     expect(appendExchange(seen, "q3", { role: "bot", text: "a3" }, []).owner).toBe(A);
   });
 
-  it("marks a history that saw a second player's backpack as nobody's", () => {
+  it("marks a history made under a second account as nobody's", () => {
     const seen = appendExchange(EMPTY_TRANSCRIPT, "q", { role: "bot", text: "a" }, [], A);
     const both = appendExchange(seen, "q2", { role: "bot", text: "a2" }, [], B);
     expect(both.owner).toBe(MIXED_OWNER);
@@ -207,13 +207,13 @@ describe("parseTranscript", () => {
     ).toEqual(EMPTY_TRANSCRIPT);
   });
 
-  it("hides a transcript that saw a backpack from anyone but its owner", () => {
+  it("hides a signed-in player's transcript from anyone else", () => {
     const mine = serializeTranscript(OF_A);
     expect(parseTranscript(mine, B)).toEqual(EMPTY_TRANSCRIPT);
     expect(parseTranscript(mine, null)).toEqual(EMPTY_TRANSCRIPT);
   });
 
-  it("shows a transcript no backpack reached to anyone, so it carries over on sign-in", () => {
+  it("shows a signed-out transcript to anyone, so it carries over on sign-in", () => {
     expect(parseTranscript(serializeTranscript(EXCHANGE), A)).toEqual(EXCHANGE);
   });
 
@@ -276,7 +276,7 @@ describe("localStorage wrappers", () => {
   });
 
   it("is locked to the server's owner, so a page that reads signed out can't unlock it", () => {
-    // The page read as signed out, but the session cookie still reached A's backpack.
+    // The page read as signed out, but the server ran the turn on A's session cookie.
     vi.stubGlobal("localStorage", fakeStorage());
     saveTranscript(appendExchange(EMPTY_TRANSCRIPT, "q", { role: "bot", text: "a" }, [], A));
     expect(loadTranscript(null)).toEqual(EMPTY_TRANSCRIPT);
@@ -284,12 +284,11 @@ describe("localStorage wrappers", () => {
     expect(loadTranscript(A).turns).toHaveLength(2);
   });
 
-  it("a history that saw two backpacks is saved for no one", () => {
-    vi.stubGlobal("localStorage", fakeStorage());
+  it("a history made under two accounts is not kept at all", () => {
+    const storage = stored(OF_A);
+    vi.stubGlobal("localStorage", storage);
     saveTranscript(appendExchange(OF_A, "q", { role: "bot", text: "a" }, [], B));
-    expect(loadTranscript(A)).toEqual(EMPTY_TRANSCRIPT);
-    expect(loadTranscript(B)).toEqual(EMPTY_TRANSCRIPT);
-    expect(loadTranscript(null)).toEqual(EMPTY_TRANSCRIPT);
+    expect(storage.data.has(TRANSCRIPT_KEY)).toBe(false);
   });
 
   it("clearTranscript removes the key", () => {
