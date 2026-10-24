@@ -47,7 +47,7 @@ const KEY_NOTE_SAVED =
 // sessionStorage is copied into a duplicated tab and comes back when a closed tab is
 // reopened or the session restored, so this can't promise "gone when you close it".
 const KEY_NOTE_TAB =
-  "Kept for this tab only, not saved in the browser. Reopening or duplicating the tab can bring it back, so on a shared computer forget it before you leave. It's sent with each message and the server never keeps it.";
+  "Kept only in this tab's session storage: it survives a reload, and reopening or duplicating the tab can bring it back. On a shared computer, forget it or sign out before you leave. It's sent with each message and the server never keeps it.";
 
 // The measured figure is in the comment above DEFAULT_MAX_REQUESTS in config.py.
 const PER_MESSAGE_NOTE = "Each message makes several model calls, often eight or more.";
