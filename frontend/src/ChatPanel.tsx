@@ -11,6 +11,7 @@ import {
 import {
   EMPTY_TRANSCRIPT,
   appendExchange,
+  clearTranscript,
   loadTranscript,
   saveTranscript,
   turnOutcome,
@@ -28,7 +29,7 @@ const TOOL_LABELS: Record<string, string> = {
 };
 
 interface Props {
-  /** Who the page thinks is signed in, read once at mount to pick which saved
+  /** Who the page thinks is signed in, read only at mount to pick which saved
    * conversation to show. What a saved conversation is stamped with comes from the
    * server instead (see `chatSession.ts`). */
   viewer: string | null;
@@ -67,7 +68,7 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
   const [draftProvider, setDraftProvider] = useState(llmKey?.provider ?? "");
   const [draftKey, setDraftKey] = useState("");
 
-  useEffect(() => saveTranscript(transcript, viewer), [transcript, viewer]);
+  useEffect(() => saveTranscript(transcript), [transcript]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -135,8 +136,8 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
   }
 
   function newChat() {
-    // Keeps the owner so clearing can remove the stored copy it was saved under.
-    setTranscript((t) => ({ ...EMPTY_TRANSCRIPT, owner: t.owner }));
+    clearTranscript();
+    setTranscript(EMPTY_TRANSCRIPT);
     setError("");
   }
 

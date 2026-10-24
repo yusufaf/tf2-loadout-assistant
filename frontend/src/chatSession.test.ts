@@ -11,6 +11,7 @@ import {
   DEFAULT_FAILURE,
   EMPTY_TRANSCRIPT,
   MAX_TURNS,
+  MIXED_OWNER,
   TRANSCRIPT_KEY,
   appendExchange,
   clearTranscript,
@@ -92,6 +93,13 @@ describe("appendExchange", () => {
     expect(seen.owner).toBe(A);
     expect(appendExchange(seen, "q2", { role: "bot", text: "a2" }, [], null).owner).toBe(A);
     expect(appendExchange(seen, "q3", { role: "bot", text: "a3" }, []).owner).toBe(A);
+  });
+
+  it("marks a history that saw a second player's backpack as nobody's", () => {
+    const seen = appendExchange(EMPTY_TRANSCRIPT, "q", { role: "bot", text: "a" }, [], A);
+    const both = appendExchange(seen, "q2", { role: "bot", text: "a2" }, [], B);
+    expect(both.owner).toBe(MIXED_OWNER);
+    expect(appendExchange(both, "q3", { role: "bot", text: "a3" }, [], A).owner).toBe(MIXED_OWNER);
   });
 
   it("keeps only the newest MAX_TURNS turns, whole exchanges", () => {
@@ -262,18 +270,26 @@ describe("localStorage wrappers", () => {
 
   it("save then load round-trips", () => {
     vi.stubGlobal("localStorage", fakeStorage());
-    saveTranscript(OF_A, A);
+    saveTranscript(OF_A);
     expect(loadTranscript(A)).toEqual(OF_A);
     expect(loadTranscript(B)).toEqual(EMPTY_TRANSCRIPT);
   });
 
-  it("stamps the server's owner, not the viewer, so a failed sign-in probe can't unlock it", () => {
+  it("is locked to the server's owner, so a page that reads signed out can't unlock it", () => {
     // The page read as signed out, but the session cookie still reached A's backpack.
     vi.stubGlobal("localStorage", fakeStorage());
-    saveTranscript(OF_A, null);
+    saveTranscript(appendExchange(EMPTY_TRANSCRIPT, "q", { role: "bot", text: "a" }, [], A));
     expect(loadTranscript(null)).toEqual(EMPTY_TRANSCRIPT);
     expect(loadTranscript(B)).toEqual(EMPTY_TRANSCRIPT);
-    expect(loadTranscript(A)).toEqual(OF_A);
+    expect(loadTranscript(A).turns).toHaveLength(2);
+  });
+
+  it("a history that saw two backpacks is saved for no one", () => {
+    vi.stubGlobal("localStorage", fakeStorage());
+    saveTranscript(appendExchange(OF_A, "q", { role: "bot", text: "a" }, [], B));
+    expect(loadTranscript(A)).toEqual(EMPTY_TRANSCRIPT);
+    expect(loadTranscript(B)).toEqual(EMPTY_TRANSCRIPT);
+    expect(loadTranscript(null)).toEqual(EMPTY_TRANSCRIPT);
   });
 
   it("clearTranscript removes the key", () => {
@@ -283,54 +299,26 @@ describe("localStorage wrappers", () => {
     expect(storage.data.has(TRANSCRIPT_KEY)).toBe(false);
   });
 
-  it("saving an empty transcript removes the viewer's own copy", () => {
-    const storage = stored(OF_A);
-    vi.stubGlobal("localStorage", storage);
-    saveTranscript(EMPTY_TRANSCRIPT, A);
-    expect(storage.data.has(TRANSCRIPT_KEY)).toBe(false);
-  });
-
-  it("saving empty as someone else leaves the stored transcript alone", () => {
+  it("saving an empty transcript never deletes, whoever the panel was loaded for", () => {
+    // A panel that mounted empty for another viewer, or before a Retry signed A in.
     vi.stubGlobal("localStorage", stored(OF_A));
-    saveTranscript(EMPTY_TRANSCRIPT, null);
-    saveTranscript(EMPTY_TRANSCRIPT, B);
+    saveTranscript(EMPTY_TRANSCRIPT);
     expect(loadTranscript(A)).toEqual(OF_A);
-  });
-
-  it("New chat keeps the owner, so it clears a copy its viewer can't read", () => {
-    const storage = stored(OF_A);
-    vi.stubGlobal("localStorage", storage);
-    saveTranscript({ ...EMPTY_TRANSCRIPT, owner: A }, null);
-    expect(storage.data.has(TRANSCRIPT_KEY)).toBe(false);
-  });
-
-  it("saving empty clears a transcript no backpack reached", () => {
-    const storage = stored(EXCHANGE);
-    vi.stubGlobal("localStorage", storage);
-    saveTranscript(EMPTY_TRANSCRIPT, A);
-    expect(storage.data.has(TRANSCRIPT_KEY)).toBe(false);
   });
 
   it("another player's first exchange replaces the stored transcript", () => {
     vi.stubGlobal("localStorage", stored(OF_A));
     const theirs = appendExchange(EMPTY_TRANSCRIPT, "q", { role: "bot", text: "a" }, [], B);
-    saveTranscript(theirs, B);
+    saveTranscript(theirs);
     expect(loadTranscript(A)).toEqual(EMPTY_TRANSCRIPT);
     expect(loadTranscript(B)).toEqual(theirs);
   });
 
-  it("a quota error removes the viewer's stale copy", () => {
+  it("a quota error removes the stale copy", () => {
     const storage = stored(OF_A);
     vi.stubGlobal("localStorage", { ...storage, setItem: quotaExceeded });
-    saveTranscript(appendExchange(OF_A, "q2", { role: "bot", text: "a2" }, []), A);
+    saveTranscript(appendExchange(OF_A, "q2", { role: "bot", text: "a2" }, []));
     expect(storage.data.has(TRANSCRIPT_KEY)).toBe(false);
-  });
-
-  it("a quota error leaves another player's copy alone", () => {
-    const storage = stored(OF_A);
-    vi.stubGlobal("localStorage", { ...storage, setItem: quotaExceeded });
-    saveTranscript(appendExchange(EMPTY_TRANSCRIPT, "q", { role: "bot", text: "a" }, [], B), B);
-    expect(storage.data.has(TRANSCRIPT_KEY)).toBe(true);
   });
 
   it("a throwing localStorage loads as empty", () => {

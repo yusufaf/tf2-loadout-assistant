@@ -19,7 +19,8 @@
  * it back; a transcript no backpack ever reached (owner null) is readable by anyone, so
  * a signed-out conversation carries over on sign-in. One slot per browser: another
  * viewer sees an empty panel and leaves the stored copy alone until their own first
- * exchange overwrites it.
+ * exchange overwrites it. Only an explicit New chat or Sign out removes it, never an
+ * empty panel, which can't tell "cleared" from "loaded for someone else".
  */
 
 import {
@@ -55,6 +56,10 @@ export interface Transcript {
 
 export const EMPTY_TRANSCRIPT: Transcript = { turns: [], history: [], owner: null };
 
+/** Owner of a history that has seen more than one player's backpack. Not a SteamID, so
+ * no viewer can read it back. */
+export const MIXED_OWNER = "mixed";
+
 export const TRANSCRIPT_KEY = "tf2-chat/v1";
 
 /** 20 exchanges. Even, so trimming the oldest never splits a question from its reply. */
@@ -72,9 +77,15 @@ export function appendExchange(
   return {
     turns: [...t.turns, { role: "user" as const, text: userText }, bot].slice(-MAX_TURNS),
     history,
-    // Never back to null: the server's history still holds the earlier backpack.
-    owner: backpackOwner ?? t.owner,
+    owner: mergeOwner(t.owner, backpackOwner),
   };
+}
+
+/** Never back to null, and never over to another player: the server's history still
+ * holds the earlier backpack either way. */
+function mergeOwner(prev: string | null, seen: string | null): string | null {
+  if (seen === null || seen === prev) return prev;
+  return prev === null ? seen : MIXED_OWNER;
 }
 
 export type TurnOutcome =
@@ -211,7 +222,7 @@ export function loadTranscript(viewer: string | null): Transcript {
   }
 }
 
-/** Forget the saved conversation whoever it belongs to: sign-out. */
+/** New chat and Sign out. */
 export function clearTranscript(): void {
   try {
     localStorage.removeItem(TRANSCRIPT_KEY);
@@ -220,30 +231,15 @@ export function clearTranscript(): void {
   }
 }
 
-/** Remove the stored copy only if it is this panel's to remove: its own, one this
- * viewer could read, or nothing valid. A panel mounted for someone else starts empty
- * too, and must not delete their conversation. */
-function dropStoredCopy(t: Transcript, viewer: string | null): void {
-  try {
-    const file = readEnvelope(localStorage.getItem(TRANSCRIPT_KEY));
-    if (!file || file.owner === t.owner || readableBy(file.owner, viewer)) {
-      localStorage.removeItem(TRANSCRIPT_KEY);
-    }
-  } catch {
-    // Storage is unusable; there is nothing saved to clear.
-  }
-}
-
-export function saveTranscript(t: Transcript, viewer: string | null): void {
-  if (t.turns.length === 0) {
-    dropStoredCopy(t, viewer);
-    return;
-  }
+/** Saving nothing is a no-op: an empty panel may have been loaded for another viewer,
+ * and their conversation is still in the slot. */
+export function saveTranscript(t: Transcript): void {
+  if (t.turns.length === 0) return;
   try {
     localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t));
   } catch {
     // Quota exceeded: an older conversation coming back on reload would be worse
-    // than none, so drop the stale copy.
-    dropStoredCopy(t, viewer);
+    // than none, and this one would have replaced it anyway.
+    clearTranscript();
   }
 }
