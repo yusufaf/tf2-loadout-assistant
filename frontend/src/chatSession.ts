@@ -11,6 +11,11 @@
  * versioned envelope, and every storage call wrapped so private mode or a full quota
  * degrades to "no saved conversation". It holds only what the server already saw;
  * the key is never in it.
+ *
+ * It does hold the advisor's tool results, which can list a player's backpack, so it is
+ * stamped with the SteamID it was saved under (null when signed out) and only that same
+ * identity reads it back. One slot per browser: whoever loads it next with a different
+ * identity gets an empty conversation, and their first save overwrites the old one.
  */
 
 import {
@@ -106,14 +111,16 @@ export function turnOutcome(r: {
   return { kind: "failed", message: DEFAULT_FAILURE };
 }
 
+/** Version 1 had no owner, so it can't be attributed and reads as empty. */
 interface StoredTranscript {
-  version: 1;
+  version: 2;
+  owner: string | null;
   turns: Turn[];
   history: unknown[];
 }
 
-export function serializeTranscript(t: Transcript): string {
-  const file: StoredTranscript = { version: 1, turns: t.turns, history: t.history };
+export function serializeTranscript(t: Transcript, owner: string | null): string {
+  const file: StoredTranscript = { version: 2, owner, turns: t.turns, history: t.history };
   return JSON.stringify(file);
 }
 
@@ -151,7 +158,7 @@ function parseTurn(v: unknown): Turn | null {
 
 /** All-or-nothing on structure: dropping one malformed turn would leave a question
  * without its reply. Lenient within a turn, like `savedLoadouts`' imports. */
-export function parseTranscript(raw: string | null): Transcript {
+export function parseTranscript(raw: string | null, owner: string | null): Transcript {
   if (!raw) return EMPTY_TRANSCRIPT;
   let parsed: unknown;
   try {
@@ -159,7 +166,8 @@ export function parseTranscript(raw: string | null): Transcript {
   } catch {
     return EMPTY_TRANSCRIPT;
   }
-  if (!isObject(parsed) || parsed.version !== 1) return EMPTY_TRANSCRIPT;
+  if (!isObject(parsed) || parsed.version !== 2) return EMPTY_TRANSCRIPT;
+  if (parsed.owner !== owner) return EMPTY_TRANSCRIPT;
   if (!Array.isArray(parsed.history) || !Array.isArray(parsed.turns)) {
     return EMPTY_TRANSCRIPT;
   }
@@ -172,28 +180,32 @@ export function parseTranscript(raw: string | null): Transcript {
   return { turns: turns.slice(-MAX_TURNS), history: parsed.history };
 }
 
-export function loadTranscript(): Transcript {
+export function loadTranscript(owner: string | null): Transcript {
   try {
-    return parseTranscript(localStorage.getItem(TRANSCRIPT_KEY));
+    return parseTranscript(localStorage.getItem(TRANSCRIPT_KEY), owner);
   } catch {
     return EMPTY_TRANSCRIPT;
   }
 }
 
-export function saveTranscript(t: Transcript): void {
+export function clearTranscript(): void {
   try {
-    if (t.turns.length === 0) {
-      localStorage.removeItem(TRANSCRIPT_KEY);
-    } else {
-      localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t));
-    }
+    localStorage.removeItem(TRANSCRIPT_KEY);
+  } catch {
+    // Storage is unusable; there is nothing saved to clear.
+  }
+}
+
+export function saveTranscript(t: Transcript, owner: string | null): void {
+  if (t.turns.length === 0) {
+    clearTranscript();
+    return;
+  }
+  try {
+    localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t, owner));
   } catch {
     // Quota exceeded: an older conversation coming back on reload would be worse
     // than none, so drop the stale copy.
-    try {
-      localStorage.removeItem(TRANSCRIPT_KEY);
-    } catch {
-      // Storage is unusable; the conversation still works for this page load.
-    }
+    clearTranscript();
   }
 }

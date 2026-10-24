@@ -45,7 +45,7 @@ import { mergeFresh } from "./savedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
 import { withoutParam } from "./urlParams";
 import ChatPanel from "./ChatPanel";
-import { EMPTY_TRANSCRIPT, saveTranscript } from "./chatSession";
+import { clearTranscript } from "./chatSession";
 
 function priceTotals(items: Cosmetic[]): string {
   const sums = new Map<string, number>();
@@ -87,10 +87,12 @@ export default function App() {
   // bench: any later edit makes a new array, or a new class, and retires the Undo. A
   // class switch must also clear it (see `changeClass`), or switching back revives it.
   const [advisorUndo, setAdvisorUndo] = useState<AdvisorUndo | null>(null);
-  const [chatEpoch, setChatEpoch] = useState(0);
   const [pinnedNotes, setPinnedNotes] = useState<string[]>([]);
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
+  // The first sign-in probe has answered. The advisor waits for it, because its saved
+  // conversation is only shown to the identity that saved it.
+  const [meKnown, setMeKnown] = useState(false);
   const [authNote, setAuthNote] = useState("");
   // Bumped by the bench Retry to re-run the grid fetch and the mount probes (chat, sign-in,
   // conflict matrix). The backpack has its own Retry.
@@ -99,7 +101,8 @@ export default function App() {
   const meToken = useRef(0);
   const [backpack, setBackpack] = useState<BackpackState>({ kind: "signed_out" });
   const backpackToken = useRef(0);
-  const saved = useSavedLoadouts(me.signed_in && me.steam_id ? me.steam_id : null);
+  const steamId = me.signed_in && me.steam_id ? me.steam_id : null;
+  const saved = useSavedLoadouts(steamId);
   const savedLocked = saved.busy || saved.status !== "ready";
   const importRef = useRef<HTMLInputElement>(null);
   const loadToken = useRef(0);
@@ -120,6 +123,7 @@ export default function App() {
     fetchMe().then((m) => {
       if (token !== meToken.current) return;
       setMe((prev) => (prev.signed_in && !m.signed_in ? prev : m));
+      setMeKnown(true);
     });
   }, [apiRetry]);
 
@@ -391,10 +395,10 @@ export default function App() {
     }
     meToken.current++;
     // The advisor's history can hold this player's backpack results; don't leave it for
-    // whoever uses the browser next. Bumping ChatPanel's key remounts it empty.
-    saveTranscript(EMPTY_TRANSCRIPT);
-    setChatEpoch((n) => n + 1);
+    // whoever uses the browser next. The new identity remounts ChatPanel empty.
+    clearTranscript();
     setMe({ signed_in: false });
+    setMeKnown(true);
   }
 
   function onImportFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -715,9 +719,10 @@ export default function App() {
             )}
           </section>
 
-          {chatAvailable && (
+          {chatAvailable && meKnown && (
             <ChatPanel
-              key={chatEpoch}
+              key={steamId ?? "signed-out"}
+              owner={steamId}
               cls={cls}
               loadout={loadout}
               onEquip={equipSuggestion}
