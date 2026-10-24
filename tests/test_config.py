@@ -13,6 +13,7 @@ from tf2_loadout.config import (
     UserLLM,
     build_user_model,
     provider_ids,
+    provider_spec,
 )
 
 # A dev machine with a real key exported must not be able to influence these tests:
@@ -57,6 +58,14 @@ def test_every_provider_has_https_key_and_pricing_links_and_a_note() -> None:
         assert spec.keys_url.startswith("https://")
         assert spec.pricing_url.startswith("https://")
         assert spec.note.strip()
+
+
+def test_openrouter_model_id_is_the_catalog_id_its_pricing_page_uses() -> None:
+    # OpenRouter's catalog and model pages use the dotted id; the hyphenated
+    # Anthropic-API spelling only works through an undocumented alias.
+    spec = provider_spec("openrouter")
+    assert spec is not None
+    assert spec.pricing_url == f"https://openrouter.ai/{spec.model}"
 
 
 @pytest.mark.parametrize(
