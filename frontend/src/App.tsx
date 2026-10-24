@@ -82,8 +82,11 @@ export default function App() {
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
   const [authNote, setAuthNote] = useState("");
-  // Bumped by the bench Retry to re-run every fetch that fails when the API is down.
+  // Bumped by the bench Retry to re-run the grid fetch and the mount probes (chat, sign-in,
+  // conflict matrix). The backpack has its own Retry.
   const [apiRetry, setApiRetry] = useState(0);
+  // Bumped on sign-out so a sign-in probe that was already in flight can't land after it.
+  const meToken = useRef(0);
   const [backpack, setBackpack] = useState<BackpackState>({ kind: "signed_out" });
   const backpackToken = useRef(0);
   const saved = useSavedLoadouts(me.signed_in && me.steam_id ? me.steam_id : null);
@@ -103,7 +106,11 @@ export default function App() {
   // signed-out answer never overrides a signed-in one: while the API is down `fetchMe`
   // folds to signed-out, and detecting an expired session is out of scope.
   useEffect(() => {
-    fetchMe().then((m) => setMe((prev) => (prev.signed_in && !m.signed_in ? prev : m)));
+    const token = meToken.current;
+    fetchMe().then((m) => {
+      if (token !== meToken.current) return;
+      setMe((prev) => (prev.signed_in && !m.signed_in ? prev : m));
+    });
   }, [apiRetry]);
 
   // Fetch the backpack once signed in. Not re-run on every render -- the API caches
@@ -335,6 +342,7 @@ export default function App() {
       setAuthNote("Couldn't sign out. Check your connection and try again.");
       return;
     }
+    meToken.current++;
     setMe({ signed_in: false });
   }
 

@@ -180,7 +180,7 @@ export default function FilterBar({
         </p>
       ) : onReloadOwned && ownedRefreshFailed ? (
         <p className="backpack-note" role="status">
-          Couldn't refresh your backpack. Showing the last read; try again in a minute.
+          Couldn't refresh your backpack. Showing the last read.
         </p>
       ) : null}
     </div>
