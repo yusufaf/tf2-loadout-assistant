@@ -150,6 +150,7 @@ Layout constants: app caps at `1180px` centered; the bench is a `1fr 340px` grid
 | Chat bubble | `.chat-msg.user` / `.chat-msg.bot` | User: paper-dark, right-indented. Bot: paper-lit, blu left border |
 | Suggestion chip | `.chat-chip` | `.clash` modifier same stamp/blush treatment as `.slot.clash` |
 | Primary action button | `.save-btn`, `.share-btn`, `.chat-equip`, `.handoff` | 2px ink border + hard shadow; fill communicates role (gold = save-ish, blu = navigate/equip) |
+| Steam sign-in | `.steam-signin` | Deliberate exception to the token system: Valve's official "Sign in through Steam" image (`public/steam/sits_01.png`), which Valve asks OpenID sites to use (steamcommunity.com/dev). Don't restyle it into a blu `.handoff`-family button, and don't recolor, filter or scale the image; only the focus ring is ours |
 
 When you need a new interactive element, start from the closest entry above and change only what genuinely differs — a new one-off class is a last resort.
 
