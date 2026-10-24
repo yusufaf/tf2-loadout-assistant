@@ -79,7 +79,7 @@ cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 
 Agent tests drive Pydantic AI's `TestModel` / `FunctionModel`, and a session fixture pins `ALLOW_MODEL_REQUESTS = False` so no test can reach a provider by accident. Do not remove that fixture. `*_live.py` test modules and `@pytest.mark.live` cases are skipped unless `--live` is passed.
 
-The frontend has its own suite: `cd frontend && pnpm test` (Vitest). It covers the pure modules only — `conflicts.ts` and `filters.ts`. There is no DOM environment and no component test; keep logic out of components so it stays that way.
+The frontend has its own suite: `cd frontend && pnpm test` (Vitest). It covers the pure modules (`conflicts.ts`, `filters.ts`, `backpack.ts`, the saved-loadout, share-link and URL helpers) plus `api.ts` against a stubbed `fetch`. There is no DOM environment and no component test; keep logic out of components so it stays that way. `backpack.ts` is the example: the backpack read's states (signed out, loading, failed, loaded, a refresh in flight or failed) and their reload rules live there as pure functions, and `App.tsx` only stores the state and fires the fetch.
 
 ## Conventions
 
