@@ -160,14 +160,21 @@ function chatHeaders(llm: LlmKey): Record<string, string> {
   };
 }
 
-function throwForChatStatus(res: Response): void {
+async function throwForChatStatus(res: Response): Promise<void> {
   if (res.status === 503) throw new ChatUnavailableError("chat not configured");
   if (res.status === 401) throw new LlmKeyError("llm key rejected or missing");
   if (res.status === 429) {
     const retryAfter = Number(res.headers.get("retry-after"));
     throw new RateLimitedError(retryAfter > 0 ? retryAfter : null);
   }
-  if (res.status === 422) throw new ChatHistoryRejectedError("chat history rejected");
+  // Only the server's own history check means "start over"; a request-body 422 from
+  // Pydantic would make that advice throw away a valid conversation.
+  if (res.status === 422) {
+    const body = await res.json().catch(() => null);
+    if (body?.detail === "malformed chat history") {
+      throw new ChatHistoryRejectedError("chat history rejected");
+    }
+  }
   if (!res.ok) throw new Error(`chat ${res.status}`);
 }
 
@@ -325,7 +332,7 @@ export async function sendChat(
     headers: chatHeaders(llm),
     body: JSON.stringify({ message, history, equipped }),
   });
-  throwForChatStatus(res);
+  await throwForChatStatus(res);
   return res.json();
 }
 
@@ -365,7 +372,7 @@ export async function streamChat(
     body: JSON.stringify({ message, history, equipped }),
     signal,
   });
-  throwForChatStatus(res);
+  await throwForChatStatus(res);
   if (!res.body) throw new Error(`chat ${res.status}`);
 
   const reader = res.body.getReader();

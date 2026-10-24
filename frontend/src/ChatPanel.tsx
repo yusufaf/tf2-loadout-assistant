@@ -73,6 +73,7 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
   useEffect(() => {
     if (!showKeyForm || providers.length > 0) return;
     let cancelled = false;
+    setProvidersFailed(false);
     fetchChatProviders().then((list) => {
       if (cancelled) return;
       if (list.length === 0) {
@@ -93,7 +94,6 @@ export default function ChatPanel({ cls, loadout, onEquip }: Props) {
   }, [showKeyForm, providers.length, providersAttempt]);
 
   function retryProviders() {
-    setProvidersFailed(false);
     setProvidersAttempt((n) => n + 1);
   }
 

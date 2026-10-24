@@ -67,10 +67,19 @@ describe("streamChat", () => {
     expect(events).toEqual([{ kind: "tool", name: "x" }, { kind: "final" }]);
   });
 
-  it("throws ChatHistoryRejectedError on a 422", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 422 })));
+  it("throws ChatHistoryRejectedError on the server's history 422", async () => {
+    const res = Response.json({ detail: "malformed chat history" }, { status: 422 });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(res));
     await expect(streamChat("m", [{ bad: true }], [], llm, () => {})).rejects.toBeInstanceOf(
       ChatHistoryRejectedError
     );
+  });
+
+  it("treats a request-body 422 as a plain failure, not a stale history", async () => {
+    const res = Response.json({ detail: [{ loc: ["body", "message"] }] }, { status: 422 });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(res));
+    const err = await streamChat("m", [], [], llm, () => {}).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(ChatHistoryRejectedError);
   });
 });
