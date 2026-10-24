@@ -85,7 +85,8 @@ export default function App() {
   // Bumped by the bench Retry to re-run the grid fetch and the mount probes (chat, sign-in,
   // conflict matrix). The backpack has its own Retry.
   const [apiRetry, setApiRetry] = useState(0);
-  // Bumped on sign-out so a sign-in probe that was already in flight can't land after it.
+  // Bumped by each sign-in probe and on sign-out, so only the newest probe lands and none
+  // that was in flight at sign-out can land after it.
   const meToken = useRef(0);
   const [backpack, setBackpack] = useState<BackpackState>({ kind: "signed_out" });
   const backpackToken = useRef(0);
@@ -106,7 +107,7 @@ export default function App() {
   // signed-out answer never overrides a signed-in one: while the API is down `fetchMe`
   // folds to signed-out, and detecting an expired session is out of scope.
   useEffect(() => {
-    const token = meToken.current;
+    const token = ++meToken.current;
     fetchMe().then((m) => {
       if (token !== meToken.current) return;
       setMe((prev) => (prev.signed_in && !m.signed_in ? prev : m));
