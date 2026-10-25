@@ -48,6 +48,14 @@ describe("signOutAndForget", () => {
     expectForgotten();
   });
 
+  it("treats a timed-out logout request as a failure", async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValue(new DOMException("signal timed out", "TimeoutError"));
+    expect(await signOutAndForget(request)).toBe(false);
+    expectForgotten();
+  });
+
   it("clears both before the request is sent", async () => {
     const request = vi.fn(async () => expectForgotten());
     expect(await signOutAndForget(request)).toBe(true);

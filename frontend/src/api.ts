@@ -217,10 +217,17 @@ export function steamLoginUrl(): string {
   return `${BASE}/auth/steam/login`;
 }
 
-/** Throws on a network error or any non-2xx: either way the session cookie wasn't
- * cleared, so the caller must not show the player as signed out. */
+const SIGN_OUT_TIMEOUT_MS = 10_000;
+
+/** Throws on a network error, any non-2xx, or no answer within `SIGN_OUT_TIMEOUT_MS`
+ * (a `TimeoutError`): either way the session cookie may not have been cleared, so the
+ * caller must not show the player as signed out. The bound is what lets a hung logout
+ * end in the caller's failure path instead of leaving sign-out stuck. */
 export async function signOut(): Promise<void> {
-  const res = await fetch(`${BASE}/auth/logout`, { method: "POST" });
+  const res = await fetch(`${BASE}/auth/logout`, {
+    method: "POST",
+    signal: AbortSignal.timeout(SIGN_OUT_TIMEOUT_MS),
+  });
   if (!res.ok) throw new Error(`logout ${res.status}`);
 }
 

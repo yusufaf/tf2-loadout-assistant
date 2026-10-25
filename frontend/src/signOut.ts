@@ -6,9 +6,10 @@
  * the player's provider; the next person on this browser should get neither. Neither
  * depends on the server, so both are cleared before the logout request is sent: a
  * request that fails or hangs must not leave them in storage. The caller keeps this
- * tab's advisor unmounted until the request settles, so nothing here can save them
- * again meanwhile; a successful request clears them once more, for anything another
- * tab saved while it was in flight.
+ * tab's advisor unmounted until the request settles (`api.signOut` gives up after
+ * `SIGN_OUT_TIMEOUT_MS`, so a hung request settles as a failure), so nothing here can
+ * save them again meanwhile; a successful request clears them once more, for anything
+ * another tab saved while it was in flight.
  *
  * Resolves `false` when the request failed, so the session cookie may still be live
  * and the caller must keep showing the player as signed in.

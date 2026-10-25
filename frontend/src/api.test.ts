@@ -7,7 +7,10 @@ import {
   type ChatStreamEvent,
 } from "./api";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("signOut", () => {
   it("rejects when the request never reaches the API", async () => {
@@ -24,7 +27,28 @@ describe("signOut", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
     await expect(signOut()).resolves.toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledWith("/auth/logout", { method: "POST" });
+    expect(fetchMock).toHaveBeenCalledWith("/auth/logout", {
+      method: "POST",
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("gives up after SIGN_OUT_TIMEOUT_MS on a request that never answers", async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => realTimeout(5));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            const signal = init!.signal!;
+            if (signal.aborted) reject(signal.reason);
+            signal.addEventListener("abort", () => reject(signal.reason));
+          })
+      )
+    );
+    await expect(signOut()).rejects.toHaveProperty("name", "TimeoutError");
+    expect(timeout).toHaveBeenCalledWith(10_000);
   });
 });
 
