@@ -11,12 +11,12 @@ import {
 import {
   EMPTY_TRANSCRIPT,
   appendExchange,
-  canSwitchViewer,
   clearTranscript,
   keepsHiddenCopy,
   loadTranscript,
   saveTranscript,
   turnOutcome,
+  viewerChange,
   type Transcript,
 } from "./chatSession";
 import { clashingIds } from "./filters";
@@ -62,9 +62,10 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
   // stored conversation during render, not in an effect: a Send pressed before a
   // deferred effect ran would already have read the old transcript.
   const [shownFor, setShownFor] = useState(viewer);
-  if (shownFor !== viewer) {
+  const change = viewerChange(shownFor, viewer, transcript, busy);
+  if (change) {
     setShownFor(viewer);
-    if (canSwitchViewer(transcript, busy)) setTranscript(loadTranscript(viewer));
+    if (change === "load") setTranscript(loadTranscript(viewer));
   }
   const [input, setInput] = useState("");
   // The final event has arrived, so the turn will be kept whatever happens: Stop is hidden.
@@ -352,7 +353,7 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
         {keepsHiddenCopy(transcript) && (
           <p className="chat-status" role="status">
             This conversation won't be saved: an earlier one of yours is saved in this
-            browser, and it comes back when you reload signed in.
+            browser, and it comes back when you reload signed in. New chat deletes it.
           </p>
         )}
       </div>

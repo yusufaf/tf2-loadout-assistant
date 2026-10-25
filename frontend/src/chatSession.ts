@@ -24,7 +24,7 @@
  * signed out): that panel never saves over the copy it couldn't show, so its own
  * conversation isn't kept and the hidden one comes back on reload. The panel says so,
  * and once the page confirms who is signed in, a panel still empty switches to that
- * viewer's copy (`canSwitchViewer`). Only an explicit New chat or Sign out removes it,
+ * viewer's copy (`viewerChange`). Only an explicit New chat or Sign out removes it,
  * never an empty panel, which can't tell "cleared" from "loaded for someone else".
  */
 
@@ -249,10 +249,18 @@ export function keepsHiddenCopy(t: Transcript): boolean {
   return t.shadows !== undefined && t.owner === t.shadows;
 }
 
-/** Whether a panel can show the stored conversation of a viewer the page confirmed
- * only after it mounted: only while it shows nothing and no turn is in flight. */
-export function canSwitchViewer(t: Transcript, busy: boolean): boolean {
-  return !busy && t.turns.length === 0;
+/** What a panel loaded for `shownFor` does now that the page says `viewer`: "load" the
+ * new viewer's stored copy while it shows nothing, "keep" the turns on screen, or null
+ * when there's nothing to decide yet. A turn in flight defers the decision rather than
+ * settling it, so a turn that fails leaves an empty panel that still loads. */
+export function viewerChange(
+  shownFor: string | null,
+  viewer: string | null,
+  t: Transcript,
+  busy: boolean
+): "load" | "keep" | null {
+  if (shownFor === viewer || busy) return null;
+  return t.turns.length === 0 ? "load" : "keep";
 }
 
 /** Saving nothing is a no-op: an empty panel may have been loaded for another viewer,

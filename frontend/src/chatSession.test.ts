@@ -14,7 +14,6 @@ import {
   MIXED_OWNER,
   TRANSCRIPT_KEY,
   appendExchange,
-  canSwitchViewer,
   clearTranscript,
   keepsHiddenCopy,
   loadTranscript,
@@ -22,6 +21,7 @@ import {
   saveTranscript,
   serializeTranscript,
   turnOutcome,
+  viewerChange,
   type Transcript,
 } from "./chatSession";
 
@@ -386,17 +386,24 @@ describe("keepsHiddenCopy", () => {
   });
 });
 
-describe("canSwitchViewer", () => {
-  it("an empty, idle panel can switch, even one that hid a copy", () => {
-    expect(canSwitchViewer(EMPTY_TRANSCRIPT, false)).toBe(true);
-    expect(canSwitchViewer({ ...EMPTY_TRANSCRIPT, shadows: A }, false)).toBe(true);
+describe("viewerChange", () => {
+  it("does nothing while the viewer is the one the panel loaded for", () => {
+    expect(viewerChange(A, A, EMPTY_TRANSCRIPT, false)).toBeNull();
+    expect(viewerChange(null, null, EXCHANGE, false)).toBeNull();
   });
 
-  it("never while a turn is in flight", () => {
-    expect(canSwitchViewer(EMPTY_TRANSCRIPT, true)).toBe(false);
+  it("an empty, idle panel loads the new viewer's copy, even one that hid a copy", () => {
+    expect(viewerChange(null, A, EMPTY_TRANSCRIPT, false)).toBe("load");
+    expect(viewerChange(null, A, { ...EMPTY_TRANSCRIPT, shadows: A }, false)).toBe("load");
   });
 
-  it("never over turns on screen", () => {
-    expect(canSwitchViewer(EXCHANGE, false)).toBe(false);
+  it("waits while a turn is in flight, so a turn that fails leaves the panel free to load", () => {
+    expect(viewerChange(null, A, EMPTY_TRANSCRIPT, true)).toBeNull();
+    // The turn failed or was stopped: the panel is empty and idle again.
+    expect(viewerChange(null, A, EMPTY_TRANSCRIPT, false)).toBe("load");
+  });
+
+  it("keeps turns on screen", () => {
+    expect(viewerChange(null, A, EXCHANGE, false)).toBe("keep");
   });
 });
