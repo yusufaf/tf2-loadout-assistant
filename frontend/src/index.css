@@ -176,7 +176,7 @@ button {
   letter-spacing: 0.04em;
   font-weight: 600;
 }
-.steam-signout:hover {
+.steam-signout:hover:not(:disabled) {
   background: var(--paper-edge);
 }
 .steam-signout:focus-visible {
@@ -662,6 +662,7 @@ button {
   outline: var(--focus);
   outline-offset: 2px;
 }
+.steam-signout:disabled,
 .save-btn:disabled,
 .saved-io button:disabled,
 .saved-buttons button:disabled,

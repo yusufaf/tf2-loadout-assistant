@@ -95,6 +95,9 @@ export default function App() {
   // Bumped on sign-out to remount ChatPanel empty. Not keyed on the SteamID: a bench
   // Retry that turns a failed probe into signed-in would remount it mid-turn.
   const [chatEpoch, setChatEpoch] = useState(0);
+  // A logout request is in flight: Sign out is disabled and the advisor unmounted, so
+  // nothing in this tab can save a key or turn between the clear and the answer.
+  const [signingOut, setSigningOut] = useState(false);
   const [authNote, setAuthNote] = useState("");
   // Bumped by the bench Retry to re-run the grid fetch and the mount probes (chat, sign-in,
   // conflict matrix). The backpack has its own Retry.
@@ -389,19 +392,19 @@ export default function App() {
 
   async function handleSignOut() {
     setAuthNote("");
-    const signedOut = signOutAndForget();
-    // Now, not when the request settles: ChatPanel reads both at mount, and the old
-    // panel would re-save a turn that finished meanwhile; unmounting aborts it.
+    setSigningOut(true);
+    // A new key as well as the unmount: the panel that comes back is a fresh one even
+    // if React folds the unmount and remount into one render.
     setChatEpoch((n) => n + 1);
-    if (!(await signedOut)) {
+    const signedOut = await signOutAndForget();
+    setSigningOut(false);
+    if (!signedOut) {
       setAuthNote(
         "Couldn't sign out, so you may still be signed in. Your advisor key and chat were cleared from this tab. Check your connection and try again."
       );
       return;
     }
     meToken.current++;
-    // Again: drops a key or turn the player entered while the request was pending.
-    setChatEpoch((n) => n + 1);
     setMe({ signed_in: false });
   }
 
@@ -427,8 +430,8 @@ export default function App() {
             <div className="steam-identity">
               {me.avatar && <img className="steam-avatar" src={me.avatar} alt="" />}
               <span className="steam-persona">{me.persona ?? "Steam user"}</span>
-              <button className="steam-signout" onClick={handleSignOut}>
-                Sign out
+              <button className="steam-signout" onClick={handleSignOut} disabled={signingOut}>
+                {signingOut ? "Signing out…" : "Sign out"}
               </button>
             </div>
           ) : (
@@ -723,7 +726,7 @@ export default function App() {
             )}
           </section>
 
-          {chatAvailable && meKnown && (
+          {chatAvailable && meKnown && !signingOut && (
             <ChatPanel
               key={chatEpoch}
               viewer={steamId}
