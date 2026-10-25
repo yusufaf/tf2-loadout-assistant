@@ -133,12 +133,13 @@ export default function App() {
   }, [apiRetry]);
 
   // The session cookie is gone, from this tab's Sign out or another's. `meKnown` too: a
-  // probe still in flight is dropped, and the advisor waits on it.
-  function showSignedOut() {
+  // probe still in flight is dropped, and the advisor waits on it. Touches only refs and
+  // setters, so the sign-out listener's mount-time copy stays correct.
+  function showSignedOut(note = "") {
     meToken.current++;
     setMe({ signed_in: false });
     setMeKnown(true);
-    setAuthNote("");
+    setAuthNote(note);
   }
 
   // Another tab started or finished signing out; `listenForSignOut` has already
@@ -149,7 +150,12 @@ export default function App() {
     () =>
       listenForSignOut((news) => {
         setChatEpoch((n) => n + 1);
-        if (news === "signed_out") return showSignedOut();
+        if (news === "signed_out") {
+          showSignedOut(
+            "You signed out in another tab, so your advisor key and chat were cleared here too."
+          );
+          return;
+        }
         setAuthNote(
           "Signing out in another tab cleared your advisor key and chat from this tab."
         );
