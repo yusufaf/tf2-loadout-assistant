@@ -44,7 +44,7 @@ import { mergeFresh } from "./savedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
 import { withoutParam } from "./urlParams";
 import ChatPanel from "./ChatPanel";
-import { signOutAndForget } from "./signOut";
+import { listenForSignOut, signOutAndForget } from "./signOut";
 
 function priceTotals(items: Cosmetic[]): string {
   const sums = new Map<string, number>();
@@ -131,6 +131,31 @@ export default function App() {
       setMeKnown(true);
     });
   }, [apiRetry]);
+
+  // The session cookie is gone, from this tab's Sign out or another's. `meKnown` too: a
+  // probe still in flight is dropped, and the advisor waits on it.
+  function showSignedOut() {
+    meToken.current++;
+    setMe({ signed_in: false });
+    setMeKnown(true);
+    setAuthNote("");
+  }
+
+  // Another tab started or finished signing out; `listenForSignOut` has already
+  // forgotten this tab's key and chat. Remount the advisor so its state goes too, say
+  // why it emptied (that tab's request may still fail, leaving this one signed in), and
+  // once the shared cookie is cleared, show it.
+  useEffect(
+    () =>
+      listenForSignOut((news) => {
+        setChatEpoch((n) => n + 1);
+        if (news === "signed_out") return showSignedOut();
+        setAuthNote(
+          "Signing out in another tab cleared your advisor key and chat from this tab."
+        );
+      }),
+    []
+  );
 
   // Fetch the backpack once signed in. Not re-run on every render -- the API caches
   // it server-side for ~10min, and `reloadBackpack` is the way to re-read it. The token
@@ -396,16 +421,18 @@ export default function App() {
     // A new key as well as the unmount: the panel that comes back is a fresh one even
     // if React folds the unmount and remount into one render.
     setChatEpoch((n) => n + 1);
+    const token = meToken.current;
     const signedOut = await signOutAndForget();
     setSigningOut(false);
     if (!signedOut) {
+      // Another tab's Sign out already cleared the cookie and showed it here.
+      if (token !== meToken.current) return;
       setAuthNote(
         "Couldn't sign out, so you may still be signed in. Your advisor key and chat were cleared from this tab. Check your connection and try again."
       );
       return;
     }
-    meToken.current++;
-    setMe({ signed_in: false });
+    showSignedOut();
   }
 
   function onImportFile(e: React.ChangeEvent<HTMLInputElement>) {
