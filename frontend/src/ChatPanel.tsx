@@ -11,7 +11,9 @@ import {
 import {
   EMPTY_TRANSCRIPT,
   appendExchange,
+  canSwitchViewer,
   clearTranscript,
+  keepsHiddenCopy,
   loadTranscript,
   saveTranscript,
   turnOutcome,
@@ -29,9 +31,10 @@ const TOOL_LABELS: Record<string, string> = {
 };
 
 interface Props {
-  /** Who the page thinks is signed in, read only at mount to pick which saved
-   * conversation to show. What a saved conversation is stamped with comes from the
-   * server instead (see `chatSession.ts`). */
+  /** Who the page thinks is signed in. It picks which saved conversation to show at
+   * mount, and again if it changes while the panel is still empty (a sign-in Retry that
+   * answered). What a saved conversation is stamped with comes from the server instead
+   * (see `chatSession.ts`). */
   viewer: string | null;
   cls: string;
   loadout: Cosmetic[];
@@ -55,6 +58,14 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
   // The in-flight message: shown in the log, but only joins the transcript with its reply.
   const [pending, setPending] = useState<string | null>(null);
   const busy = pending !== null;
+  // The page confirmed who is signed in after this panel mounted. Switch to their
+  // stored conversation during render, not in an effect: a Send pressed before a
+  // deferred effect ran would already have read the old transcript.
+  const [shownFor, setShownFor] = useState(viewer);
+  if (shownFor !== viewer) {
+    setShownFor(viewer);
+    if (canSwitchViewer(transcript, busy)) setTranscript(loadTranscript(viewer));
+  }
   const [input, setInput] = useState("");
   // The final event has arrived, so the turn will be kept whatever happens: Stop is hidden.
   const [replied, setReplied] = useState(false);
@@ -338,6 +349,12 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
           <p className="chat-status">{progress || "Thinking it over…"}</p>
         )}
         {error && <p className="chat-status error">{error}</p>}
+        {keepsHiddenCopy(transcript) && (
+          <p className="chat-status" role="status">
+            This conversation won't be saved: an earlier one of yours is saved in this
+            browser, and it comes back when you reload signed in.
+          </p>
+        )}
       </div>
 
       {showKeyForm ? (

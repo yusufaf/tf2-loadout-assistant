@@ -14,7 +14,9 @@ import {
   MIXED_OWNER,
   TRANSCRIPT_KEY,
   appendExchange,
+  canSwitchViewer,
   clearTranscript,
+  keepsHiddenCopy,
   loadTranscript,
   parseTranscript,
   saveTranscript,
@@ -71,6 +73,8 @@ const EXCHANGE: Transcript = {
 };
 // The same conversation after the server reported running it as A.
 const OF_A: Transcript = { ...EXCHANGE, owner: A };
+
+const stored = (t: Transcript) => fakeStorage({ [TRANSCRIPT_KEY]: serializeTranscript(t) });
 
 const FINAL: ChatStreamEvent = { kind: "final", message: "hi", history: [] };
 const NOTHING = { final: null, errorEvent: null, thrown: undefined, aborted: false };
@@ -266,8 +270,6 @@ describe("parseTranscript", () => {
 });
 
 describe("localStorage wrappers", () => {
-  const stored = (t: Transcript) => fakeStorage({ [TRANSCRIPT_KEY]: serializeTranscript(t) });
-
   it("save then load round-trips", () => {
     vi.stubGlobal("localStorage", fakeStorage());
     saveTranscript(OF_A);
@@ -314,7 +316,8 @@ describe("localStorage wrappers", () => {
   });
 
   it("a panel that misread its viewer never saves over the copy it hid, even as that copy's owner", () => {
-    // fetchMe folded a failure or a timeout to signed out while A's cookie still worked.
+    // The sign-in check failed or timed out, so the page read as signed out while A's
+    // cookie still worked.
     vi.stubGlobal("localStorage", stored(OF_A));
     const once = appendExchange(loadTranscript(null), "q", { role: "bot", text: "a" }, [], A);
     saveTranscript(once);
@@ -353,5 +356,47 @@ describe("localStorage wrappers", () => {
       },
     });
     expect(loadTranscript(A)).toEqual(EMPTY_TRANSCRIPT);
+  });
+});
+
+describe("keepsHiddenCopy", () => {
+  it("is false with no hidden copy", () => {
+    expect(keepsHiddenCopy(EMPTY_TRANSCRIPT)).toBe(false);
+    expect(keepsHiddenCopy(OF_A)).toBe(false);
+  });
+
+  it("is false before the misread panel's first turn", () => {
+    vi.stubGlobal("localStorage", stored(OF_A));
+    expect(keepsHiddenCopy(loadTranscript(null))).toBe(false);
+  });
+
+  it("is true once a turn ran as the hidden copy's owner, exactly when saving skips it", () => {
+    vi.stubGlobal("localStorage", stored(OF_A));
+    const t = appendExchange(loadTranscript(null), "q", { role: "bot", text: "a" }, [], A);
+    expect(keepsHiddenCopy(t)).toBe(true);
+    saveTranscript(t);
+    expect(loadTranscript(A)).toEqual(OF_A);
+  });
+
+  it("is false once a turn ran as anyone else", () => {
+    vi.stubGlobal("localStorage", stored(OF_A));
+    const bot = { role: "bot" as const, text: "a" };
+    expect(keepsHiddenCopy(appendExchange(loadTranscript(null), "q", bot, [], null))).toBe(false);
+    expect(keepsHiddenCopy(appendExchange(loadTranscript(null), "q", bot, [], B))).toBe(false);
+  });
+});
+
+describe("canSwitchViewer", () => {
+  it("an empty, idle panel can switch, even one that hid a copy", () => {
+    expect(canSwitchViewer(EMPTY_TRANSCRIPT, false)).toBe(true);
+    expect(canSwitchViewer({ ...EMPTY_TRANSCRIPT, shadows: A }, false)).toBe(true);
+  });
+
+  it("never while a turn is in flight", () => {
+    expect(canSwitchViewer(EMPTY_TRANSCRIPT, true)).toBe(false);
+  });
+
+  it("never over turns on screen", () => {
+    expect(canSwitchViewer(EXCHANGE, false)).toBe(false);
   });
 });
