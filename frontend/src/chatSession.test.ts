@@ -207,10 +207,10 @@ describe("parseTranscript", () => {
     ).toEqual(EMPTY_TRANSCRIPT);
   });
 
-  it("hides a signed-in player's transcript from anyone else", () => {
+  it("hides a signed-in player's transcript from anyone else, remembering whose it was", () => {
     const mine = serializeTranscript(OF_A);
-    expect(parseTranscript(mine, B)).toEqual(EMPTY_TRANSCRIPT);
-    expect(parseTranscript(mine, null)).toEqual(EMPTY_TRANSCRIPT);
+    expect(parseTranscript(mine, B)).toEqual({ ...EMPTY_TRANSCRIPT, shadows: A });
+    expect(parseTranscript(mine, null)).toEqual({ ...EMPTY_TRANSCRIPT, shadows: A });
   });
 
   it("shows a signed-out transcript to anyone, so it carries over on sign-in", () => {
@@ -272,15 +272,15 @@ describe("localStorage wrappers", () => {
     vi.stubGlobal("localStorage", fakeStorage());
     saveTranscript(OF_A);
     expect(loadTranscript(A)).toEqual(OF_A);
-    expect(loadTranscript(B)).toEqual(EMPTY_TRANSCRIPT);
+    expect(loadTranscript(B)).toEqual({ ...EMPTY_TRANSCRIPT, shadows: A });
   });
 
   it("is locked to the server's owner, so a page that reads signed out can't unlock it", () => {
     // The page read as signed out, but the server ran the turn on A's session cookie.
     vi.stubGlobal("localStorage", fakeStorage());
     saveTranscript(appendExchange(EMPTY_TRANSCRIPT, "q", { role: "bot", text: "a" }, [], A));
-    expect(loadTranscript(null)).toEqual(EMPTY_TRANSCRIPT);
-    expect(loadTranscript(B)).toEqual(EMPTY_TRANSCRIPT);
+    expect(loadTranscript(null)).toEqual({ ...EMPTY_TRANSCRIPT, shadows: A });
+    expect(loadTranscript(B)).toEqual({ ...EMPTY_TRANSCRIPT, shadows: A });
     expect(loadTranscript(A).turns).toHaveLength(2);
   });
 
@@ -307,10 +307,36 @@ describe("localStorage wrappers", () => {
 
   it("another player's first exchange replaces the stored transcript", () => {
     vi.stubGlobal("localStorage", stored(OF_A));
-    const theirs = appendExchange(EMPTY_TRANSCRIPT, "q", { role: "bot", text: "a" }, [], B);
+    const theirs = appendExchange(loadTranscript(B), "q", { role: "bot", text: "a" }, [], B);
     saveTranscript(theirs);
-    expect(loadTranscript(A)).toEqual(EMPTY_TRANSCRIPT);
+    expect(loadTranscript(A)).toEqual({ ...EMPTY_TRANSCRIPT, shadows: B });
     expect(loadTranscript(B)).toEqual(theirs);
+  });
+
+  it("a panel that misread its viewer never saves over the copy it hid, even as that copy's owner", () => {
+    // fetchMe folded a failure or a timeout to signed out while A's cookie still worked.
+    vi.stubGlobal("localStorage", stored(OF_A));
+    const once = appendExchange(loadTranscript(null), "q", { role: "bot", text: "a" }, [], A);
+    saveTranscript(once);
+    saveTranscript(appendExchange(once, "q2", { role: "bot", text: "a2" }, [], A));
+    expect(loadTranscript(A)).toEqual(OF_A);
+  });
+
+  it("a signed-out player's first exchange still replaces a hidden copy", () => {
+    vi.stubGlobal("localStorage", stored(OF_A));
+    const mine = appendExchange(loadTranscript(null), "q", { role: "bot", text: "a" }, [], null);
+    saveTranscript(mine);
+    expect(loadTranscript(null)).toEqual(mine);
+  });
+
+  it("once a hidden copy is replaced, a later turn as its old owner saves again", () => {
+    // A signed in from another tab mid-conversation; sign-in isn't broadcast.
+    vi.stubGlobal("localStorage", stored(OF_A));
+    const first = appendExchange(loadTranscript(null), "q", { role: "bot", text: "a" }, [], null);
+    saveTranscript(first);
+    const second = appendExchange(first, "q2", { role: "bot", text: "a2" }, [], A);
+    saveTranscript(second);
+    expect(loadTranscript(A)).toEqual(second);
   });
 
   it("a quota error removes the stale copy", () => {
