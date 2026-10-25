@@ -19,7 +19,11 @@
  * transcript made entirely signed out (owner null) is readable by anyone, so it carries
  * over on sign-in. One slot per browser: another
  * viewer sees an empty panel and leaves the stored copy alone until their own first
- * exchange overwrites it. Only an explicit New chat or Sign out removes it, never an
+ * exchange overwrites it. A turn the server ran as the hidden copy's own owner is not
+ * another viewer but a misread one (`fetchMe` folds a failure or a timeout to
+ * signed-out while the cookie still works): that panel never saves over the copy it
+ * couldn't show, so its own conversation isn't kept and the hidden one comes back on
+ * reload. Only an explicit New chat or Sign out removes it, never an
  * empty panel, which can't tell "cleared" from "loaded for someone else".
  */
 
@@ -52,6 +56,12 @@ export interface Transcript {
   history: unknown[];
   /** SteamID the turns in `history` ran as, or null if all ran signed out. */
   owner: string | null;
+  /** Owner of a stored conversation this panel wasn't allowed to show. A turn the server
+   * ran as that same account means the page misread who is signed in (a failed or
+   * timed-out `fetchMe`), not that someone else took over, so it never replaces that
+   * copy. Dropped once a turn runs as anyone else, since that turn's save replaces the
+   * copy. Never saved. */
+  shadows?: string;
 }
 
 export const EMPTY_TRANSCRIPT: Transcript = { turns: [], history: [], owner: null };
@@ -74,10 +84,12 @@ export function appendExchange(
   history: unknown[],
   ranAs: string | null = null
 ): Transcript {
+  const owner = mergeOwner(t.owner, ranAs);
   return {
     turns: [...t.turns, { role: "user" as const, text: userText }, bot].slice(-MAX_TURNS),
     history,
-    owner: mergeOwner(t.owner, ranAs),
+    owner,
+    ...(owner === t.shadows ? { shadows: t.shadows } : {}),
   };
 }
 
@@ -148,10 +160,6 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function readableBy(owner: string | null, viewer: string | null): boolean {
-  return owner === null || owner === viewer;
-}
-
 type Envelope = Record<string, unknown> & { owner: string | null };
 
 /** The stored envelope, or null when nothing valid is stored. */
@@ -201,7 +209,10 @@ function parseTurn(v: unknown): Turn | null {
  * without its reply. Lenient within a turn, like `savedLoadouts`' imports. */
 export function parseTranscript(raw: string | null, viewer: string | null): Transcript {
   const file = readEnvelope(raw);
-  if (!file || !readableBy(file.owner, viewer)) return EMPTY_TRANSCRIPT;
+  if (!file) return EMPTY_TRANSCRIPT;
+  if (file.owner !== null && file.owner !== viewer) {
+    return { ...EMPTY_TRANSCRIPT, shadows: file.owner };
+  }
   if (!Array.isArray(file.history) || !Array.isArray(file.turns)) {
     return EMPTY_TRANSCRIPT;
   }
@@ -237,6 +248,8 @@ export function saveTranscript(t: Transcript): void {
   if (t.turns.length === 0) return;
   // Not cleared either: the slot may already hold the other account's own copy.
   if (t.owner === MIXED_OWNER) return;
+  // The page misread this viewer, and the copy it hid is still theirs.
+  if (t.shadows !== undefined && t.owner === t.shadows) return;
   try {
     localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t));
   } catch {
