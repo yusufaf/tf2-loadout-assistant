@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ChatHistoryRejectedError,
   fetchInventory,
+  fetchMe,
   signOut,
   streamChat,
   type ChatStreamEvent,
@@ -48,6 +49,42 @@ describe("signOut", () => {
       )
     );
     await expect(signOut()).rejects.toHaveProperty("name", "TimeoutError");
+    expect(timeout).toHaveBeenCalledWith(10_000);
+  });
+});
+
+describe("fetchMe", () => {
+  it("returns the session the API reports, asking with a timeout signal", async () => {
+    const body = {
+      signed_in: true,
+      steam_id: "76561197960287930",
+      persona: "p",
+      avatar: null,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(Response.json(body));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchMe()).resolves.toEqual(body);
+    expect(fetchMock).toHaveBeenCalledWith("/auth/me", { signal: expect.any(AbortSignal) });
+  });
+
+  it("reads a probe that never answers as signed out after AUTH_ME_TIMEOUT_MS", async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => realTimeout(5));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            // No signal: never settle, as the hung request would. Throwing here instead
+            // would land in fetchMe's catch and pass without a bound.
+            const signal = init?.signal;
+            if (!signal) return;
+            if (signal.aborted) reject(signal.reason);
+            signal.addEventListener("abort", () => reject(signal.reason));
+          })
+      )
+    );
+    await expect(fetchMe()).resolves.toEqual({ signed_in: false });
     expect(timeout).toHaveBeenCalledWith(10_000);
   });
 });

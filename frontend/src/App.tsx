@@ -89,8 +89,9 @@ export default function App() {
   const [pinnedNotes, setPinnedNotes] = useState<string[]>([]);
   const [chatAvailable, setChatAvailable] = useState(false);
   const [me, setMe] = useState<Me>({ signed_in: false });
-  // The first sign-in probe has answered. The advisor waits for it, because a saved
-  // conversation is only shown to the account it was made under.
+  // The first sign-in probe has settled (it gives up after `AUTH_ME_TIMEOUT_MS`, reading
+  // as signed out). The advisor waits for it, because a saved conversation is only
+  // shown to the account it was made under.
   const [meKnown, setMeKnown] = useState(false);
   // Bumped on sign-out to remount ChatPanel empty. Not keyed on the SteamID: a bench
   // Retry that turns a failed probe into signed-in would remount it mid-turn.

@@ -201,11 +201,17 @@ export interface Me {
   avatar?: string | null;
 }
 
+const AUTH_ME_TIMEOUT_MS = 10_000;
+
 /** Probes sign-in state at mount, same pattern as `fetchChatAvailable`: an absent or
- * unconfigured auth service just means signed-out, never an error the UI surfaces. */
+ * unconfigured auth service just means signed-out, never an error the UI surfaces. No
+ * answer within `AUTH_ME_TIMEOUT_MS` reads as signed-out too, so a hung probe can't keep
+ * the advisor, which waits on it, hidden until reload. */
 export async function fetchMe(): Promise<Me> {
   try {
-    const res = await fetch(`${BASE}/auth/me`);
+    const res = await fetch(`${BASE}/auth/me`, {
+      signal: AbortSignal.timeout(AUTH_ME_TIMEOUT_MS),
+    });
     if (!res.ok) return { signed_in: false };
     return await res.json();
   } catch {
