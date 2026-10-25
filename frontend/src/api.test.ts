@@ -67,7 +67,7 @@ describe("fetchMe", () => {
     expect(fetchMock).toHaveBeenCalledWith("/auth/me", { signal: expect.any(AbortSignal) });
   });
 
-  it("reads a probe that never answers as signed out after AUTH_ME_TIMEOUT_MS", async () => {
+  it("reads a probe that never answers as unknown after AUTH_ME_TIMEOUT_MS", async () => {
     const realTimeout = AbortSignal.timeout.bind(AbortSignal);
     const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => realTimeout(5));
     vi.stubGlobal(
@@ -84,8 +84,50 @@ describe("fetchMe", () => {
           })
       )
     );
-    await expect(fetchMe()).resolves.toEqual({ signed_in: false });
+    await expect(fetchMe()).resolves.toBeNull();
     expect(timeout).toHaveBeenCalledWith(10_000);
+  });
+
+  it("reads a request that never reaches the API as unknown", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await expect(fetchMe()).resolves.toBeNull();
+  });
+
+  it("reads a non-2xx as unknown, including a 503 that isn't the API's own", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 502 })));
+    await expect(fetchMe()).resolves.toBeNull();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("Service Unavailable", { status: 503 }))
+    );
+    await expect(fetchMe()).resolves.toBeNull();
+  });
+
+  it("reads a 2xx that isn't a sign-in answer as unknown", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("<html>portal</html>", { status: 200 }))
+    );
+    await expect(fetchMe()).resolves.toBeNull();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({})));
+    await expect(fetchMe()).resolves.toBeNull();
+  });
+
+  it("passes a real signed-out answer through", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ signed_in: false })));
+    await expect(fetchMe()).resolves.toEqual({ signed_in: false });
+  });
+
+  it("reads the API's auth-not-configured 503 as signed out, since nobody can be", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ detail: "auth service unavailable" }, { status: 503 })
+        )
+    );
+    await expect(fetchMe()).resolves.toEqual({ signed_in: false });
   });
 });
 

@@ -17,8 +17,8 @@
  * a successful one. `listenForSignOut` forgets that tab's copies and lets its caller
  * remount the advisor and, on "signed_out", show the player signed out. A tab
  * restored from the back/forward cache or reopened later missed the message. A
- * session that ends without a Sign out (it expires) is not announced: `fetchMe`
- * can't tell that from the API being down.
+ * session that ends without a Sign out (it expires) is not announced: a re-check's
+ * signed-out answer never overrides a signed-in page (`signInCheck.ts`).
  *
  * Resolves `false` when the request failed, so the session cookie may still be live
  * and the caller must keep showing the player as signed in.

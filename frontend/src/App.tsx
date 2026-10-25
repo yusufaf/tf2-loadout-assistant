@@ -12,7 +12,6 @@ import {
   backpackUrl,
   type Cosmetic,
   type Conflict,
-  type Me,
 } from "./api";
 import {
   backpackBusy,
@@ -45,6 +44,16 @@ import { decodeLoadout, shareUrl } from "./shareLink";
 import { withoutParam } from "./urlParams";
 import ChatPanel from "./ChatPanel";
 import { listenForSignOut, signOutAndForget } from "./signOut";
+import {
+  recheckRequest,
+  settleSignIn,
+  signedInAs,
+  signedInMe,
+  signInFailed,
+  signInRechecking,
+  signInSettled,
+  type SignInState,
+} from "./signInCheck";
 
 function priceTotals(items: Cosmetic[]): string {
   const sums = new Map<string, number>();
@@ -88,13 +97,13 @@ export default function App() {
   const [advisorUndo, setAdvisorUndo] = useState<AdvisorUndo | null>(null);
   const [pinnedNotes, setPinnedNotes] = useState<string[]>([]);
   const [chatAvailable, setChatAvailable] = useState(false);
-  const [me, setMe] = useState<Me>({ signed_in: false });
-  // The first sign-in probe has settled (it gives up after `AUTH_ME_TIMEOUT_MS`, reading
-  // as signed out). The advisor waits for it, because a saved conversation is only
-  // shown to the account it was made under.
-  const [meKnown, setMeKnown] = useState(false);
-  // Bumped on sign-out to remount ChatPanel empty. Not keyed on the SteamID: a bench
-  // Retry that turns a failed probe into signed-in would remount it mid-turn.
+  // The sign-in probe's answer. The advisor waits for the first one to settle
+  // (`AUTH_ME_TIMEOUT_MS` bounds it), because a saved conversation is only shown to the
+  // account it was made under.
+  const [signIn, setSignIn] = useState<SignInState>({ kind: "checking" });
+  // Bumped on sign-out to remount ChatPanel empty. Not keyed on the SteamID: a sign-in
+  // Retry that turns a failed probe into signed-in would remount it mid-turn. An empty
+  // panel switches to the new viewer by itself.
   const [chatEpoch, setChatEpoch] = useState(0);
   // A logout request is in flight: Sign out is disabled and the advisor unmounted, so
   // nothing in this tab can save a key or turn between the clear and the answer.
@@ -107,7 +116,8 @@ export default function App() {
   const meToken = useRef(0);
   const [backpack, setBackpack] = useState<BackpackState>({ kind: "signed_out" });
   const backpackToken = useRef(0);
-  const steamId = me.signed_in && me.steam_id ? me.steam_id : null;
+  const me = signedInMe(signIn);
+  const steamId = signedInAs(signIn);
   const saved = useSavedLoadouts(steamId);
   const savedLocked = saved.busy || saved.status !== "ready";
   const importRef = useRef<HTMLInputElement>(null);
@@ -120,25 +130,31 @@ export default function App() {
     fetchChatAvailable().then((ok) => setChatAvailable((prev) => prev || ok));
   }, [apiRetry]);
 
-  // Probe sign-in state at mount and on the bench Retry; an absent/unconfigured auth
-  // service just reads as signed-out, same as the chat-availability probe above. A
-  // signed-out answer never overrides a signed-in one: while the API is down `fetchMe`
-  // folds to signed-out, and detecting an expired session is out of scope.
-  useEffect(() => {
+  // Probe sign-in state. A probe in flight at sign-out is dropped by the token.
+  function probeSignIn() {
     const token = meToken.current;
     fetchMe().then((m) => {
-      if (token !== meToken.current) return;
-      setMe((prev) => (prev.signed_in && !m.signed_in ? prev : m));
-      setMeKnown(true);
+      if (token === meToken.current) setSignIn((prev) => settleSignIn(prev, m));
     });
-  }, [apiRetry]);
+  }
 
-  // The session cookie is gone, from this tab's Sign out or another's. `meKnown` too: a
-  // probe still in flight is dropped, and the advisor waits on it.
+  // At mount and on the bench Retry; an unconfigured auth service reads as signed out.
+  // The settle rules are in `signInCheck.ts`.
+  useEffect(() => probeSignIn(), [apiRetry]);
+
+  // The sign-in note's Retry: re-runs only the probe.
+  function recheckSignIn() {
+    const next = recheckRequest(signIn);
+    if (!next) return;
+    setSignIn(next);
+    probeSignIn();
+  }
+
+  // The session cookie is gone, from this tab's Sign out or another's. `meToken` too: a
+  // probe still in flight is dropped.
   function showSignedOut() {
     meToken.current++;
-    setMe({ signed_in: false });
-    setMeKnown(true);
+    setSignIn({ kind: "signed_out" });
     setAuthNote("");
   }
 
@@ -161,9 +177,10 @@ export default function App() {
   // Fetch the backpack once signed in. Not re-run on every render -- the API caches
   // it server-side for ~10min, and `reloadBackpack` is the way to re-read it. The token
   // drops a read that lands after sign-out or a newer reload.
+  const signedIn = me !== null;
   useEffect(() => {
     const token = ++backpackToken.current;
-    if (!me.signed_in) {
+    if (!signedIn) {
       setBackpack({ kind: "signed_out" });
       return;
     }
@@ -171,7 +188,7 @@ export default function App() {
     fetchInventory().then((r) => {
       if (token === backpackToken.current) setBackpack(settleBackpack({ kind: "loading" }, r));
     });
-  }, [me.signed_in]);
+  }, [signedIn]);
 
   // Read ?auth=failed left by a rejected /auth/steam/return redirect, then strip it.
   // Each URL effect strips only its own param, so their order doesn't matter.
@@ -454,7 +471,7 @@ export default function App() {
         </h1>
         <div className="masthead-side">
           <span className="tagline">Try it on before you trade for it</span>
-          {me.signed_in ? (
+          {me ? (
             <div className="steam-identity">
               {me.avatar && <img className="steam-avatar" src={me.avatar} alt="" />}
               <span className="steam-persona">{me.persona ?? "Steam user"}</span>
@@ -471,6 +488,14 @@ export default function App() {
         {authNote && (
           <p className="auth-note" role="alert">
             {authNote}
+          </p>
+        )}
+        {signInFailed(signIn) && (
+          <p className="auth-note" role="alert">
+            Couldn't check whether you're signed in.{" "}
+            <button type="button" onClick={recheckSignIn} disabled={signInRechecking(signIn)}>
+              {signInRechecking(signIn) ? "Checking…" : "Retry"}
+            </button>
           </p>
         )}
       </header>
@@ -754,7 +779,7 @@ export default function App() {
             )}
           </section>
 
-          {chatAvailable && meKnown && !signingOut && (
+          {chatAvailable && signInSettled(signIn) && !signingOut && (
             <ChatPanel
               key={chatEpoch}
               viewer={steamId}

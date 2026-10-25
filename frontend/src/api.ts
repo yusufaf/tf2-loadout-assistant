@@ -203,19 +203,29 @@ export interface Me {
 
 const AUTH_ME_TIMEOUT_MS = 10_000;
 
-/** Probes sign-in state at mount, same pattern as `fetchChatAvailable`: an absent or
- * unconfigured auth service just means signed-out, never an error the UI surfaces. No
- * answer within `AUTH_ME_TIMEOUT_MS` reads as signed-out too, so a hung probe can't keep
- * the advisor, which waits on it, hidden until reload. */
-export async function fetchMe(): Promise<Me> {
+/** Probes sign-in state. Null means the probe couldn't tell: a network error, no answer
+ * within `AUTH_ME_TIMEOUT_MS`, a non-2xx, or a body that isn't a sign-in answer. The
+ * caller shows that as "couldn't check" and never as signed in. The API's own "auth
+ * not configured" 503 is a real answer (nobody can be signed in on that deploy), the
+ * same split as `fetchLoadouts`. Never throws. */
+export async function fetchMe(): Promise<Me | null> {
+  let res: Response;
   try {
-    const res = await fetch(`${BASE}/auth/me`, {
-      signal: AbortSignal.timeout(AUTH_ME_TIMEOUT_MS),
-    });
-    if (!res.ok) return { signed_in: false };
-    return await res.json();
+    res = await fetch(`${BASE}/auth/me`, { signal: AbortSignal.timeout(AUTH_ME_TIMEOUT_MS) });
   } catch {
-    return { signed_in: false };
+    return null;
+  }
+  if (res.status === 503) {
+    // Matches api.py's /auth/me 503 detail; any other 503 is a proxy, not a config signal.
+    const body = await res.json().catch(() => null);
+    return body?.detail === "auth service unavailable" ? { signed_in: false } : null;
+  }
+  if (!res.ok) return null;
+  try {
+    const body = await res.json();
+    return typeof body?.signed_in === "boolean" ? body : null;
+  } catch {
+    return null;
   }
 }
 
