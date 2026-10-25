@@ -637,6 +637,7 @@ button {
 .saved-note button,
 .share-note button,
 .backpack-note button,
+.auth-note button,
 .status button {
   background: var(--paper);
   border: var(--bd);
@@ -651,6 +652,7 @@ button {
 .saved-note button:hover,
 .share-note button:hover,
 .backpack-note button:hover:not(:disabled),
+.auth-note button:hover:not(:disabled),
 .status button:hover {
   background: var(--paper-edge);
 }
@@ -658,6 +660,7 @@ button {
 .saved-note button:focus-visible,
 .share-note button:focus-visible,
 .backpack-note button:focus-visible,
+.auth-note button:focus-visible,
 .status button:focus-visible {
   outline: var(--focus);
   outline-offset: 2px;
@@ -666,7 +669,8 @@ button {
 .save-btn:disabled,
 .saved-io button:disabled,
 .saved-buttons button:disabled,
-.backpack-note button:disabled {
+.backpack-note button:disabled,
+.auth-note button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }

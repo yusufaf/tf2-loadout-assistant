@@ -14,17 +14,18 @@
  *
  * It does hold the advisor's tool results, which can list a player's backpack, so it is
  * stamped with the SteamID the server says each turn ran as (`steam_id` on each reply)
- * -- never the page's own idea of who is signed in, which `fetchMe` folds to signed-out
- * on any API failure while the cookie still works. Only that viewer reads it back; a
- * transcript made entirely signed out (owner null) is readable by anyone, so it carries
- * over on sign-in. One slot per browser: another
+ * -- never the page's own idea of who is signed in, which reads as signed out whenever
+ * `fetchMe` couldn't check, while the cookie still works. Only that viewer reads it
+ * back; a transcript made entirely signed out (owner null) is readable by anyone, so it
+ * carries over on sign-in. One slot per browser: another
  * viewer sees an empty panel and leaves the stored copy alone until their own first
  * exchange overwrites it. A turn the server ran as the hidden copy's own owner is not
- * another viewer but a misread one (`fetchMe` folds a failure or a timeout to
- * signed-out while the cookie still works): that panel never saves over the copy it
- * couldn't show, so its own conversation isn't kept and the hidden one comes back on
- * reload. Only an explicit New chat or Sign out removes it, never an
- * empty panel, which can't tell "cleared" from "loaded for someone else".
+ * another viewer but a misread one (the page couldn't check sign-in, so it showed them
+ * signed out): that panel never saves over the copy it couldn't show, so its own
+ * conversation isn't kept and the hidden one comes back on reload. The panel says so,
+ * and once the page confirms who is signed in, a panel still empty switches to that
+ * viewer's copy (`viewerChange`). Only an explicit New chat or Sign out removes it,
+ * never an empty panel, which can't tell "cleared" from "loaded for someone else".
  */
 
 import {
@@ -57,8 +58,8 @@ export interface Transcript {
   /** SteamID the turns in `history` ran as, or null if all ran signed out. */
   owner: string | null;
   /** Owner of a stored conversation this panel wasn't allowed to show. A turn the server
-   * ran as that same account means the page misread who is signed in (a failed or
-   * timed-out `fetchMe`), not that someone else took over, so it never replaces that
+   * ran as that same account means the page misread who is signed in (a sign-in check
+   * that failed or timed out), not that someone else took over, so it never replaces that
    * copy. Dropped once a turn runs as anyone else, since that turn's save replaces the
    * copy. Never saved. */
   shadows?: string;
@@ -242,14 +243,33 @@ export function clearTranscript(): void {
   }
 }
 
+/** The page misread this viewer, and the copy it hid is still theirs: saving would
+ * replace it, so this panel's conversation isn't kept. The panel tells the player. */
+export function keepsHiddenCopy(t: Transcript): boolean {
+  return t.shadows !== undefined && t.owner === t.shadows;
+}
+
+/** What a panel loaded for `shownFor` does now that the page says `viewer`: "load" the
+ * new viewer's stored copy while it shows nothing, "keep" the turns on screen, or null
+ * when there's nothing to decide yet. A turn in flight defers the decision rather than
+ * settling it, so a turn that fails leaves an empty panel that still loads. */
+export function viewerChange(
+  shownFor: string | null,
+  viewer: string | null,
+  t: Transcript,
+  busy: boolean
+): "load" | "keep" | null {
+  if (shownFor === viewer || busy) return null;
+  return t.turns.length === 0 ? "load" : "keep";
+}
+
 /** Saving nothing is a no-op: an empty panel may have been loaded for another viewer,
  * and their conversation is still in the slot. */
 export function saveTranscript(t: Transcript): void {
   if (t.turns.length === 0) return;
   // Not cleared either: the slot may already hold the other account's own copy.
   if (t.owner === MIXED_OWNER) return;
-  // The page misread this viewer, and the copy it hid is still theirs.
-  if (t.shadows !== undefined && t.owner === t.shadows) return;
+  if (keepsHiddenCopy(t)) return;
   try {
     localStorage.setItem(TRANSCRIPT_KEY, serializeTranscript(t));
   } catch {
