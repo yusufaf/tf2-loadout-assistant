@@ -24,7 +24,23 @@ describe("signOut", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
     await expect(signOut()).resolves.toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledWith("/auth/logout", { method: "POST" });
+    expect(fetchMock).toHaveBeenCalledWith("/auth/logout", {
+      method: "POST",
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("gives up on a request that never answers", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_, reject) =>
+            init?.signal?.addEventListener("abort", () => reject(init.signal!.reason))
+          )
+      )
+    );
+    await expect(signOut(5)).rejects.toHaveProperty("name", "TimeoutError");
   });
 });
 
