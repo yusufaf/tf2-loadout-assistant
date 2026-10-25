@@ -6,7 +6,6 @@ import {
   fetchChatAvailable,
   fetchMe,
   steamLoginUrl,
-  signOut,
   fetchInventory,
   lookupCosmetics,
   formatPrice,
@@ -45,8 +44,7 @@ import { mergeFresh } from "./savedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
 import { withoutParam } from "./urlParams";
 import ChatPanel from "./ChatPanel";
-import { clearTranscript } from "./chatSession";
-import { clearLlmKey } from "./llmKey";
+import { signOutAndForget } from "./signOut";
 
 function priceTotals(items: Cosmetic[]): string {
   const sums = new Map<string, number>();
@@ -391,19 +389,17 @@ export default function App() {
 
   async function handleSignOut() {
     setAuthNote("");
-    try {
-      await signOut();
-    } catch {
-      setAuthNote("Couldn't sign out. Check your connection and try again.");
+    const signedOut = signOutAndForget();
+    // Now, not when the request settles: ChatPanel reads both at mount, and the old
+    // panel would re-save a turn that finished meanwhile; unmounting aborts it.
+    setChatEpoch((n) => n + 1);
+    if (!(await signedOut)) {
+      setAuthNote(
+        "Couldn't sign out, so you may still be signed in. Your advisor key and chat were cleared from this tab. Check your connection and try again."
+      );
       return;
     }
     meToken.current++;
-    // Don't leave the next person on this browser the advisor's history, which can hold
-    // this player's backpack results, or their key, which would bill the player's
-    // provider. Both are cleared before the remount, since ChatPanel reads them at mount.
-    clearTranscript();
-    clearLlmKey();
-    setChatEpoch((n) => n + 1);
     setMe({ signed_in: false });
   }
 
