@@ -400,6 +400,8 @@ export default function App() {
       return;
     }
     meToken.current++;
+    // Again: drops a key or turn the player entered while the request was pending.
+    setChatEpoch((n) => n + 1);
     setMe({ signed_in: false });
   }
 

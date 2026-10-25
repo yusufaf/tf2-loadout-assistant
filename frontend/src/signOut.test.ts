@@ -54,6 +54,16 @@ describe("signOutAndForget", () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
+  it("forgets a key or turn saved while the request was in flight", async () => {
+    const request = vi.fn(async () => {
+      local.setItem(TRANSCRIPT_KEY, TRANSCRIPT);
+      local.setItem(STORAGE_KEY, KEY);
+      session.setItem(STORAGE_KEY, KEY);
+    });
+    expect(await signOutAndForget(request)).toBe(true);
+    expectForgotten();
+  });
+
   it("resolves true once the API has cleared the session", async () => {
     expect(await signOutAndForget(vi.fn().mockResolvedValue(undefined))).toBe(true);
     expectForgotten();
