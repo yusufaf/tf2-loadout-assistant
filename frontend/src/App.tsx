@@ -44,7 +44,7 @@ import { mergeFresh } from "./savedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
 import { withoutParam } from "./urlParams";
 import ChatPanel from "./ChatPanel";
-import { signOutAndForget } from "./signOut";
+import { listenForSignOut, signOutAndForget } from "./signOut";
 
 function priceTotals(items: Cosmetic[]): string {
   const sums = new Map<string, number>();
@@ -131,6 +131,23 @@ export default function App() {
       setMeKnown(true);
     });
   }, [apiRetry]);
+
+  // Another tab started or finished signing out; `listenForSignOut` has already
+  // forgotten this tab's key and chat. Remount the advisor so its state goes too, and
+  // once the shared cookie is cleared, show it. `meKnown` too: a probe still in flight
+  // is dropped, and the advisor waits on it.
+  useEffect(
+    () =>
+      listenForSignOut((news) => {
+        setChatEpoch((n) => n + 1);
+        if (news !== "signed_out") return;
+        meToken.current++;
+        setMe({ signed_in: false });
+        setMeKnown(true);
+        setAuthNote("");
+      }),
+    []
+  );
 
   // Fetch the backpack once signed in. Not re-run on every render -- the API caches
   // it server-side for ~10min, and `reloadBackpack` is the way to re-read it. The token
