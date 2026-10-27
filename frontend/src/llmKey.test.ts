@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   STORAGE_KEY,
   clearLlmKey,
+  clearTabOnlyLlmKey,
   loadLlmKey,
   parseStoredKey,
   saveLlmKey,
@@ -90,6 +91,18 @@ describe("storage wrappers", () => {
     expect(session.data.has(STORAGE_KEY)).toBe(true);
     expect(local.data.has(STORAGE_KEY)).toBe(false);
     expect(loadLlmKey()).toEqual({ provider: "anthropic", apiKey: "sk-tab", remember: false });
+  });
+
+  it("clearTabOnlyLlmKey forgets the tab copy and keeps the remembered one", () => {
+    const local = fakeStorage();
+    const session = fakeStorage();
+    stubStores(local, session);
+    saveLlmKey({ provider: "openai", apiKey: "sk-kept" }, true);
+    session.setItem(STORAGE_KEY, serializeKey({ provider: "anthropic", apiKey: "sk-tab" }));
+
+    clearTabOnlyLlmKey();
+    expect(session.data.has(STORAGE_KEY)).toBe(false);
+    expect(loadLlmKey()).toEqual({ provider: "openai", apiKey: "sk-kept", remember: true });
   });
 
   it("switching to this-tab-only removes the saved copy", () => {

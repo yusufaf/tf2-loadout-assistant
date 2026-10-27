@@ -9,7 +9,8 @@
  * By default the key is remembered in `localStorage`. The player can instead keep
  * it for this tab only, in `sessionStorage`: it survives a reload and other tabs
  * don't see it, but a duplicated tab gets a copy and reopening a closed tab or
- * restoring the session brings it back. Either way it sits in plaintext browser
+ * restoring the session brings it back, unless a sign-out happened since
+ * (`signOut.ts`). Either way it sits in plaintext browser
  * storage that any script on the page can read; the tab-only option exists so a
  * shared computer doesn't keep it for every later visitor. Which store holds the
  * key is what `remember` means; the envelope is the same in both.
@@ -107,5 +108,11 @@ export function saveLlmKey(key: LlmKey, remember: boolean): void {
 
 export function clearLlmKey(): void {
   remove(saved);
+  remove(tabOnly);
+}
+
+/** A tab that missed a sign-out: its own copy belongs to the signed-out player, but
+ * the remembered one may already be the next person's. */
+export function clearTabOnlyLlmKey(): void {
   remove(tabOnly);
 }
