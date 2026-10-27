@@ -188,7 +188,8 @@ export default function App() {
   // Back from the back/forward cache after a sign-out it slept through: the panel's
   // in-memory key and chat must go, and the page still shows whoever it showed before,
   // so re-check from `checking`. That unmounts the advisor until the probe settles; a
-  // failed probe is `unknown`, which grants nothing.
+  // failed probe is `unknown`, which grants nothing. The mark is written before the
+  // logout request, so that sign-out may have failed: the note doesn't claim it worked.
   useEffect(
     () =>
       listenForMissedSignOut((why) => {
@@ -197,7 +198,7 @@ export default function App() {
         setSignIn({ kind: "checking" });
         setAuthNote(
           why === "signed_out"
-            ? "Someone signed out while this tab was in the background, so its advisor key and chat were cleared."
+            ? "Signing out in another tab while this one was in the background cleared its advisor key and chat."
             : "This tab couldn't confirm nobody signed out while it was in the background, so its advisor key and chat were cleared."
         );
         probeSignIn();
