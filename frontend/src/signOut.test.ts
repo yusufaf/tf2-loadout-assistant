@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TRANSCRIPT_KEY, serializeTranscript } from "./chatSession";
-import { STORAGE_KEY, serializeKey } from "./llmKey";
+import { STORAGE_KEY, loadLlmKey, saveLlmKey, serializeKey } from "./llmKey";
 import {
   SIGN_OUT_CHANNEL,
+  SIGN_OUT_MARK_KEY,
+  catchUpWithSignOut,
+  listenForMissedSignOut,
   listenForSignOut,
   signOutAndForget,
   type SignOutNews,
@@ -132,8 +135,8 @@ describe("other tabs", () => {
     expect(await signOutAndForget(ok())).toBe(true);
     await settle();
     expect(tab.heard).toEqual([
-      { kind: "forget", from: expect.any(String) },
-      { kind: "signed_out", from: expect.any(String) },
+      { kind: "forget", from: expect.any(String), mark: expect.any(String) },
+      { kind: "signed_out", from: expect.any(String), mark: expect.any(String) },
     ]);
   });
 
@@ -142,7 +145,9 @@ describe("other tabs", () => {
     const request = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
     expect(await signOutAndForget(request)).toBe(false);
     await settle();
-    expect(tab.heard).toEqual([{ kind: "forget", from: expect.any(String) }]);
+    expect(tab.heard).toEqual([
+      { kind: "forget", from: expect.any(String), mark: expect.any(String) },
+    ]);
   });
 
   it.each(["forget", "signed_out"] as const)(
@@ -181,6 +186,170 @@ describe("other tabs", () => {
     expect(await signOutAndForget(ok())).toBe(true);
     expectForgotten();
     const stop = listenForSignOut(() => {});
+    expect(() => stop()).not.toThrow();
+  });
+});
+
+const K = { provider: "anthropic", apiKey: "sk-abc" };
+
+/** Points `sessionStorage` at one tab's own store; `localStorage` stays shared. */
+function swapTab(store: ReturnType<typeof fakeStorage>) {
+  vi.stubGlobal("sessionStorage", store);
+}
+
+describe("tabs that missed it", () => {
+  it("a tab reopened after another tab signed out forgets its tab-only key", async () => {
+    const tabA = fakeStorage();
+    const tabB = fakeStorage();
+    swapTab(tabA);
+    saveLlmKey(K, false);
+    swapTab(tabB);
+    await signOutAndForget(ok());
+    swapTab(tabA);
+    expect(catchUpWithSignOut()).toBe("signed_out");
+    expect(loadLlmKey()).toBeNull();
+  });
+
+  it("keeps a key and chat the next person saved", async () => {
+    const tabA = fakeStorage();
+    const tabB = fakeStorage();
+    swapTab(tabA);
+    saveLlmKey(K, false);
+    swapTab(tabB);
+    await signOutAndForget(ok());
+    saveLlmKey({ provider: "openai", apiKey: "sk-next" }, true);
+    local.setItem(TRANSCRIPT_KEY, TRANSCRIPT);
+    swapTab(tabA);
+    expect(catchUpWithSignOut()).toBe("signed_out");
+    expect(loadLlmKey()).toEqual({ provider: "openai", apiKey: "sk-next", remember: true });
+    expect(local.data.has(TRANSCRIPT_KEY)).toBe(true);
+  });
+
+  it("the signing-out tab is already caught up", async () => {
+    await signOutAndForget(ok());
+    saveLlmKey(K, false);
+    expect(catchUpWithSignOut()).toBeNull();
+    expect(loadLlmKey()).toEqual({ ...K, remember: false });
+  });
+
+  it("a tab that heard the broadcast records the mark it carried", async () => {
+    // The sender's localStorage write may not be visible here yet when the news lands.
+    local.setItem(SIGN_OUT_MARK_KEY, "m-old");
+    listen();
+    otherTab().post({ kind: "forget", from: "another-tab", mark: "m-new" });
+    await settle();
+    local.setItem(SIGN_OUT_MARK_KEY, "m-new");
+    saveLlmKey(K, false);
+    expect(catchUpWithSignOut()).toBeNull();
+    expect(loadLlmKey()).toEqual({ ...K, remember: false });
+  });
+
+  it("each announcement carries the mark current when it was posted", async () => {
+    const tab = otherTab();
+    let m1: string | null = null;
+    await signOutAndForget(async () => {
+      m1 = local.getItem(SIGN_OUT_MARK_KEY);
+    });
+    await settle();
+    const [forgot, signedOut] = tab.heard as Array<{ mark?: string }>;
+    expect(m1).toBeTruthy();
+    expect(forgot.mark).toBe(m1);
+    expect(signedOut.mark).toBe(local.getItem(SIGN_OUT_MARK_KEY));
+    expect(signedOut.mark).not.toBe(m1);
+  });
+
+  it("nothing to catch up on in a browser that never signed out", () => {
+    saveLlmKey(K, false);
+    expect(catchUpWithSignOut()).toBeNull();
+    expect(loadLlmKey()).toEqual({ ...K, remember: false });
+  });
+
+  it("counts unreadable storage as missed", () => {
+    const blocked = () => {
+      throw new Error("blocked");
+    };
+    vi.stubGlobal("localStorage", { ...local, getItem: blocked });
+    expect(catchUpWithSignOut()).toBe("unreadable");
+    expect(session.data.has(STORAGE_KEY)).toBe(false);
+
+    session.setItem(STORAGE_KEY, KEY);
+    vi.stubGlobal("localStorage", local);
+    vi.stubGlobal("sessionStorage", { ...session, getItem: blocked });
+    expect(catchUpWithSignOut()).toBe("unreadable");
+    expect(session.data.has(STORAGE_KEY)).toBe(false);
+  });
+
+  it("a sign-out whose mark can't be saved still signs out", async () => {
+    vi.stubGlobal("localStorage", {
+      ...local,
+      setItem: () => {
+        throw new DOMException("full", "QuotaExceededError");
+      },
+    });
+    const tab = otherTab();
+    expect(await signOutAndForget(ok())).toBe(true);
+    expectForgotten();
+    await settle();
+    expect(tab.heard).toHaveLength(2);
+    for (const m of tab.heard) expect(m).not.toHaveProperty("mark");
+  });
+
+  it("writes the mark after clearing the transcript", async () => {
+    vi.stubGlobal("localStorage", {
+      ...local,
+      setItem: (k: string, v: string) => {
+        if (local.data.has(TRANSCRIPT_KEY)) throw new DOMException("full", "QuotaExceededError");
+        local.setItem(k, v);
+      },
+    });
+    await signOutAndForget(ok());
+    expect(local.data.has(SIGN_OUT_MARK_KEY)).toBe(true);
+  });
+
+  it("a tab-only key saved during the request is caught up on", async () => {
+    const tabA = fakeStorage();
+    const tabB = fakeStorage();
+    swapTab(tabB);
+    await signOutAndForget(async () => {
+      // Tab A heard "forget" (recording its mark, as its listener does), then saved a
+      // key; it never hears "signed_out".
+      const m1 = local.getItem(SIGN_OUT_MARK_KEY);
+      swapTab(tabA);
+      tabA.setItem(SIGN_OUT_MARK_KEY, m1!);
+      saveLlmKey(K, false);
+      swapTab(tabB);
+    });
+    swapTab(tabA);
+    expect(catchUpWithSignOut()).toBe("signed_out");
+    expect(loadLlmKey()).toBeNull();
+  });
+});
+
+describe("listenForMissedSignOut", () => {
+  it("calls back only for a bfcache restore after a missed sign-out", () => {
+    const win = new EventTarget();
+    vi.stubGlobal("window", win);
+    local.setItem(SIGN_OUT_MARK_KEY, "m1");
+    saveLlmKey(K, false);
+    const calls: string[] = [];
+    open.push(listenForMissedSignOut((why) => calls.push(why)));
+    const fire = (persisted: boolean) =>
+      win.dispatchEvent(Object.assign(new Event("pageshow"), { persisted }));
+
+    fire(false);
+    expect(calls).toEqual([]);
+    expect(loadLlmKey()).toEqual({ ...K, remember: false });
+
+    fire(true);
+    expect(calls).toEqual(["signed_out"]);
+    expect(session.data.has(STORAGE_KEY)).toBe(false);
+
+    fire(true);
+    expect(calls).toEqual(["signed_out"]);
+  });
+
+  it("is a no-op without window", () => {
+    const stop = listenForMissedSignOut(() => {});
     expect(() => stop()).not.toThrow();
   });
 });

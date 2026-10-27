@@ -43,7 +43,12 @@ import { mergeFresh } from "./savedLoadouts";
 import { decodeLoadout, shareUrl } from "./shareLink";
 import { withoutParam } from "./urlParams";
 import ChatPanel from "./ChatPanel";
-import { listenForSignOut, signOutAndForget } from "./signOut";
+import {
+  catchUpWithSignOut,
+  listenForMissedSignOut,
+  listenForSignOut,
+  signOutAndForget,
+} from "./signOut";
 import {
   recheckRequest,
   settleSignIn,
@@ -162,14 +167,41 @@ export default function App() {
   // forgotten this tab's key and chat. Remount the advisor so its state goes too, say
   // why it emptied (that tab's request may still fail, leaving this one signed in), and
   // once the shared cookie is cleared, show it.
+  //
+  // Then catch up on a sign-out this tab missed while closed (a reopened tab gets its
+  // tab-only key back). Checked after subscribing, so no sign-out falls between the
+  // two, and silently: the advisor can't be mounted yet (`signIn` starts `checking`,
+  // `chatAvailable` false), and a brand-new tab also reads as missed with nothing to
+  // clear. StrictMode's second run finds nothing left to do.
+  useEffect(() => {
+    const stop = listenForSignOut((news) => {
+      setChatEpoch((n) => n + 1);
+      if (news === "signed_out") return showSignedOut();
+      setAuthNote(
+        "Signing out in another tab cleared your advisor key and chat from this tab."
+      );
+    });
+    catchUpWithSignOut();
+    return stop;
+  }, []);
+
+  // Back from the back/forward cache after a sign-out it slept through: the panel's
+  // in-memory key and chat must go, and the page still shows whoever it showed before,
+  // so re-check from `checking`. That unmounts the advisor until the probe settles; a
+  // failed probe is `unknown`, which grants nothing. The mark is written before the
+  // logout request, so that sign-out may have failed: the note doesn't claim it worked.
   useEffect(
     () =>
-      listenForSignOut((news) => {
+      listenForMissedSignOut((why) => {
         setChatEpoch((n) => n + 1);
-        if (news === "signed_out") return showSignedOut();
+        meToken.current++;
+        setSignIn({ kind: "checking" });
         setAuthNote(
-          "Signing out in another tab cleared your advisor key and chat from this tab."
+          why === "signed_out"
+            ? "Another tab started signing out while this one was in the background, so its advisor key and chat were cleared."
+            : "This tab couldn't confirm nobody signed out while it was in the background, so its advisor key and chat were cleared."
         );
+        probeSignIn();
       }),
     []
   );
