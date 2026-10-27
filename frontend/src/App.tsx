@@ -198,7 +198,7 @@ export default function App() {
         setSignIn({ kind: "checking" });
         setAuthNote(
           why === "signed_out"
-            ? "Signing out in another tab while this one was in the background cleared its advisor key and chat."
+            ? "Another tab started signing out while this one was in the background, so its advisor key and chat were cleared."
             : "This tab couldn't confirm nobody signed out while it was in the background, so its advisor key and chat were cleared."
         );
         probeSignIn();
