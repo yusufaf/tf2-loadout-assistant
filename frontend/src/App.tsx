@@ -99,6 +99,8 @@ export default function App() {
   // The bench before the last advisor Equip. Offered only while `applied` is still the
   // bench: any later edit makes a new array, or a new class, and retires the Undo. A
   // class switch must also clear it (see `changeClass`), or switching back revives it.
+  // Sign-out clears it too (`showSignedOut`, and a missed sign-out), so the next player
+  // isn't offered the previous one's bench.
   const [advisorUndo, setAdvisorUndo] = useState<AdvisorUndo | null>(null);
   const [pinnedNotes, setPinnedNotes] = useState<string[]>([]);
   const [chatAvailable, setChatAvailable] = useState(false);
@@ -156,11 +158,12 @@ export default function App() {
   }
 
   // The session cookie is gone, from this tab's Sign out or another's. `meToken` too: a
-  // probe still in flight is dropped.
+  // probe still in flight is dropped. The advisor's Undo goes too.
   function showSignedOut() {
     meToken.current++;
     setSignIn({ kind: "signed_out" });
     setAuthNote("");
+    setAdvisorUndo(null);
   }
 
   // Another tab started or finished signing out; `listenForSignOut` has already
@@ -186,14 +189,16 @@ export default function App() {
   }, []);
 
   // Back from the back/forward cache after a sign-out it slept through: the panel's
-  // in-memory key and chat must go, and the page still shows whoever it showed before,
-  // so re-check from `checking`. That unmounts the advisor until the probe settles; a
-  // failed probe is `unknown`, which grants nothing. The mark is written before the
-  // logout request, so that sign-out may have failed: the note doesn't claim it worked.
+  // in-memory key and chat must go, and the advisor's Undo with them, and the page still
+  // shows whoever it showed before, so re-check from `checking`. That unmounts the
+  // advisor until the probe settles; a failed probe is `unknown`, which grants nothing.
+  // The mark is written before the logout request, so that sign-out may have failed: the
+  // note doesn't claim it worked.
   useEffect(
     () =>
       listenForMissedSignOut((why) => {
         setChatEpoch((n) => n + 1);
+        setAdvisorUndo(null);
         meToken.current++;
         setSignIn({ kind: "checking" });
         setAuthNote(
