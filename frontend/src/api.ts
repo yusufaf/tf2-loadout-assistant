@@ -70,8 +70,15 @@ export async function fetchCosmetic(defindex: number): Promise<Cosmetic> {
 /** Mirrors `MAX_COSMETIC_LOOKUP` in api.py: a bigger POST 422s, so lookups are chunked. */
 export const MAX_COSMETIC_LOOKUP = 500;
 
+const LOOKUP_TIMEOUT_MS = 30_000;
+
 /** Resolve many defindexes in one request per chunk. `missing` lists the ones the
- * catalog doesn't have; a failed request throws rather than reading as "all missing". */
+ * catalog doesn't have. Throws on a network error, a non-2xx, or no complete answer
+ * within `LOOKUP_TIMEOUT_MS` (a `TimeoutError`) for any chunk, so callers land on their
+ * failure path and never on a partial or "all missing" result. The bound covers the body
+ * download too, so it is sized against the payload: a full 500-defindex chunk measured
+ * ~42 KB compressed, ~210 KB uncompressed, no bigger than the catalog
+ * `COSMETICS_TIMEOUT_MS` was sized for. */
 export async function lookupCosmetics(
   defindexes: number[]
 ): Promise<{ items: Cosmetic[]; missing: number[] }> {
@@ -87,6 +94,7 @@ export async function lookupCosmetics(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ defindexes: chunk }),
+        signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
       });
       if (!res.ok) throw new Error(`lookup ${res.status}`);
       return (await res.json()) as { items: Cosmetic[]; missing: number[] };
