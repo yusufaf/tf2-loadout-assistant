@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ChatHistoryRejectedError,
+  fetchCosmetics,
   fetchInventory,
   fetchMe,
   signOut,
@@ -50,6 +51,66 @@ describe("signOut", () => {
     );
     await expect(signOut()).rejects.toHaveProperty("name", "TimeoutError");
     expect(timeout).toHaveBeenCalledWith(10_000);
+  });
+});
+
+describe("fetchCosmetics", () => {
+  it("returns the class's items, asking for the whole catalog with a timeout signal", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ items: [{ defindex: 1 }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchCosmetics("pyro", "")).resolves.toEqual([{ defindex: 1 }]);
+    expect(fetchMock).toHaveBeenCalledWith("/cosmetics?used_by=pyro&limit=0", {
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("gives up after COSMETICS_TIMEOUT_MS on a request that never answers", async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => realTimeout(5));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            // No signal: never settle, as the hung request would. Throwing here instead
+            // would reject without a bound and pass for the wrong reason.
+            const signal = init?.signal;
+            if (!signal) return;
+            if (signal.aborted) reject(signal.reason);
+            signal.addEventListener("abort", () => reject(signal.reason));
+          })
+      )
+    );
+    await expect(fetchCosmetics("pyro", "")).rejects.toHaveProperty("name", "TimeoutError");
+    expect(timeout).toHaveBeenCalledWith(30_000);
+  });
+
+  it("also bounds a body that stalls after the headers arrive", async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation(() => realTimeout(5));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (_url: string, init?: RequestInit) =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                // Like a real fetch, the request's signal also errors the body stream.
+                // Without one the stream never closes, as a stalled download would.
+                const signal = init?.signal;
+                if (!signal) return;
+                signal.addEventListener("abort", () => controller.error(signal.reason));
+              },
+            })
+          )
+      )
+    );
+    await expect(fetchCosmetics("pyro", "")).rejects.toHaveProperty("name", "TimeoutError");
+  });
+
+  it("rejects on a non-2xx rather than reading as an empty catalog", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 502 })));
+    await expect(fetchCosmetics("pyro", "")).rejects.toThrow("cosmetics 502");
   });
 });
 
