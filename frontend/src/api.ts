@@ -34,12 +34,22 @@ export interface Conflict {
 // one origin -- required for the Steam sign-in cookie (SameSite=Lax) to ride along.
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 
+const COSMETICS_TIMEOUT_MS = 30_000;
+
+/** A class's whole catalog. Throws on a network error, a non-2xx, or no complete answer
+ * within `COSMETICS_TIMEOUT_MS` (a `TimeoutError`), so the bench shows "Can't reach the
+ * bench" with a Retry and never an empty catalog. The bound covers the body download
+ * too, so it is sized against the payload rather than copied from the 10 s probes: the
+ * largest class measured ~52 KB compressed, ~260 KB uncompressed, a few seconds on Slow
+ * 3G. */
 export async function fetchCosmetics(usedBy: string, q: string): Promise<Cosmetic[]> {
   // limit=0 means "everything": filtering happens client-side, so a truncated page
   // would silently hide items the user has filtered down to.
   const params = new URLSearchParams({ used_by: usedBy, limit: "0" });
   if (q) params.set("q", q);
-  const res = await fetch(`${BASE}/cosmetics?${params}`);
+  const res = await fetch(`${BASE}/cosmetics?${params}`, {
+    signal: AbortSignal.timeout(COSMETICS_TIMEOUT_MS),
+  });
   if (!res.ok) throw new Error(`cosmetics ${res.status}`);
   return (await res.json()).items;
 }
