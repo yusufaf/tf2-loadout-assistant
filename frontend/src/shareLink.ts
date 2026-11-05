@@ -25,7 +25,12 @@ export function encodeLoadout(cls: string, items: Cosmetic[]): string {
   return toUrlSafe(btoa(JSON.stringify(payload)));
 }
 
-export function decodeLoadout(param: string): { cls: string; defindexes: number[] } | null {
+export interface SharedBuild {
+  cls: string;
+  defindexes: number[];
+}
+
+export function decodeLoadout(param: string): SharedBuild | null {
   try {
     const json = atob(fromUrlSafe(param));
     const parsed = JSON.parse(json) as Partial<SharePayload>;
