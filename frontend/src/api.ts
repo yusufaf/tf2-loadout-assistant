@@ -61,8 +61,17 @@ export async function fetchConflictMatrix(): Promise<ConflictMatrix> {
   return (await res.json()).matrix;
 }
 
+const COSMETIC_ITEM_TIMEOUT_MS = 10_000;
+
+/** One item, re-resolved for an advisor chip. Throws on a network error, a non-2xx, or
+ * no complete answer within `COSMETIC_ITEM_TIMEOUT_MS` (a `TimeoutError`), and
+ * `ChatPanel` drops that chip rather than holding the reply back. A single item
+ * measured ~0.4 KB, so it gets the probes' 10 s rather than the catalog's 30 s; a
+ * reply's chips are fetched in parallel, so a reply waits at most about this long. */
 export async function fetchCosmetic(defindex: number): Promise<Cosmetic> {
-  const res = await fetch(`${BASE}/cosmetics/${defindex}`);
+  const res = await fetch(`${BASE}/cosmetics/${defindex}`, {
+    signal: AbortSignal.timeout(COSMETIC_ITEM_TIMEOUT_MS),
+  });
   if (!res.ok) throw new Error(`cosmetic ${res.status}`);
   return res.json();
 }

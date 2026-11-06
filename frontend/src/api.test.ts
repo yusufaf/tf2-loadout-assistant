@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ChatHistoryRejectedError,
+  fetchCosmetic,
   fetchCosmetics,
   fetchInventory,
   fetchLoadouts,
@@ -114,6 +115,66 @@ describe("fetchCosmetics", () => {
   it("rejects on a non-2xx rather than reading as an empty catalog", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 502 })));
     await expect(fetchCosmetics("pyro", "")).rejects.toThrow("cosmetics 502");
+  });
+});
+
+describe("fetchCosmetic", () => {
+  it("returns the item, asking with a timeout signal", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ defindex: 30065 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchCosmetic(30065)).resolves.toEqual({ defindex: 30065 });
+    expect(fetchMock).toHaveBeenCalledWith("/cosmetics/30065", {
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("gives up after COSMETIC_ITEM_TIMEOUT_MS on a request that never answers", async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => realTimeout(5));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            // No signal: never settle, as the hung request would. Throwing here instead
+            // would reject without a bound and pass for the wrong reason.
+            const signal = init?.signal;
+            if (!signal) return;
+            if (signal.aborted) reject(signal.reason);
+            signal.addEventListener("abort", () => reject(signal.reason));
+          })
+      )
+    );
+    await expect(fetchCosmetic(30065)).rejects.toHaveProperty("name", "TimeoutError");
+    expect(timeout).toHaveBeenCalledWith(10_000);
+  });
+
+  it("also bounds a body that stalls after the headers arrive", async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation(() => realTimeout(5));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (_url: string, init?: RequestInit) =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                // Like a real fetch, the request's signal also errors the body stream.
+                // Without one the stream never closes, as a stalled download would.
+                const signal = init?.signal;
+                if (!signal) return;
+                signal.addEventListener("abort", () => controller.error(signal.reason));
+              },
+            })
+          )
+      )
+    );
+    await expect(fetchCosmetic(30065)).rejects.toHaveProperty("name", "TimeoutError");
+  });
+
+  it("rejects on a non-2xx, so the advisor drops that chip", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
+    await expect(fetchCosmetic(30065)).rejects.toThrow("cosmetic 404");
   });
 });
 
