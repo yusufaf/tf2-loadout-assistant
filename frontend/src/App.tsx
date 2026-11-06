@@ -412,6 +412,9 @@ export default function App() {
           pinNote("Kept your changes. The shared loadout wasn't applied.");
           return;
         }
+        // A class switch doesn't touch the tray, so it passes the check above: put the
+        // build back on its own class rather than show its items under another.
+        setCls(build.cls);
         setLoadout(items);
         if (missing.length) {
           pinNote(
