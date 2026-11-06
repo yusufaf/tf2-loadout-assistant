@@ -91,6 +91,12 @@ export default function App() {
   useLayoutEffect(() => {
     loadoutRef.current = loadout;
   }, [loadout]);
+  // Same, for the shared-link loader: a class switch doesn't touch the tray, so it needs
+  // its own check.
+  const clsRef = useRef(cls);
+  useLayoutEffect(() => {
+    clsRef.current = cls;
+  }, [cls]);
   const [sharedLoading, setSharedLoading] = useState(false);
   // The link a failed lookup was for, kept so its note can Retry: the param is already
   // gone from the URL.
@@ -406,15 +412,12 @@ export default function App() {
     setSharedLoading(true);
     lookupCosmetics(build.defindexes)
       .then(({ items, missing }) => {
-        // The player equipped, unequipped or loaded something while this was in flight, so
-        // their edit wins and the link's own notes no longer apply.
-        if (loadoutRef.current !== base) {
+        // The player equipped, unequipped, loaded something or switched class while this
+        // was in flight, so their edit wins and the link's own notes no longer apply.
+        if (loadoutRef.current !== base || clsRef.current !== build.cls) {
           pinNote("Kept your changes. The shared loadout wasn't applied.");
           return;
         }
-        // A class switch doesn't touch the tray, so it passes the check above: put the
-        // build back on its own class rather than show its items under another.
-        setCls(build.cls);
         setLoadout(items);
         if (missing.length) {
           pinNote(
