@@ -300,14 +300,21 @@ export interface LoadoutRecord {
  * caller keeps the localStorage store -- not an error the player needs to act on. */
 export class LoadoutsUnavailableError extends Error {}
 
+const LOADOUTS_TIMEOUT_MS = 30_000;
+
 /** Throws `LoadoutsUnavailableError` on the "not configured" 503 (a deploy without
  * DynamoDB, see .env.example); null on any other failure (signed out, network, a
- * transient API error), which `remoteLoadouts.loadAll` turns into a thrown load
- * failure the UI shows with a Retry. */
+ * transient API error, no complete answer within `LOADOUTS_TIMEOUT_MS`), which
+ * `remoteLoadouts.loadAll` turns into a thrown load failure the UI shows with a Retry.
+ * The bound covers the body download too, and nothing caps how many loadouts an account
+ * keeps: one is at most ~340 B of JSON, so 1,000 (~330 KB uncompressed, ~60 KB
+ * compressed) is about the catalog `COSMETICS_TIMEOUT_MS` was sized for. */
 export async function fetchLoadouts(): Promise<LoadoutRecord[] | null> {
   let res: Response;
   try {
-    res = await fetch(`${BASE}/me/loadouts`);
+    res = await fetch(`${BASE}/me/loadouts`, {
+      signal: AbortSignal.timeout(LOADOUTS_TIMEOUT_MS),
+    });
   } catch {
     return null;
   }

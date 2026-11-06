@@ -3,6 +3,7 @@ import {
   ChatHistoryRejectedError,
   fetchCosmetics,
   fetchInventory,
+  fetchLoadouts,
   fetchMe,
   lookupCosmetics,
   MAX_COSMETIC_LOOKUP,
@@ -284,6 +285,67 @@ describe("fetchMe", () => {
         )
     );
     await expect(fetchMe()).resolves.toEqual({ signed_in: false });
+  });
+});
+
+describe("fetchLoadouts", () => {
+  it("returns the account's loadouts, asking with a timeout signal", async () => {
+    const record = {
+      id: "a",
+      name: "Cop",
+      cls: "soldier",
+      defindexes: [30065],
+      created_at: 1,
+      updated_at: 1,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ loadouts: [record] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchLoadouts()).resolves.toEqual([record]);
+    expect(fetchMock).toHaveBeenCalledWith("/me/loadouts", { signal: expect.any(AbortSignal) });
+  });
+
+  it("reads a request that never answers as a failed read after LOADOUTS_TIMEOUT_MS, never as zero loadouts", async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => realTimeout(5));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            // No signal: never settle, as the hung request would. Throwing here instead
+            // would land in fetchLoadouts' catch and pass without a bound.
+            const signal = init?.signal;
+            if (!signal) return;
+            if (signal.aborted) reject(signal.reason);
+            signal.addEventListener("abort", () => reject(signal.reason));
+          })
+      )
+    );
+    await expect(fetchLoadouts()).resolves.toBeNull();
+    expect(timeout).toHaveBeenCalledWith(30_000);
+  });
+
+  it("also bounds a body that stalls after the headers arrive", async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation(() => realTimeout(5));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (_url: string, init?: RequestInit) =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                // Like a real fetch, the request's signal also errors the body stream.
+                // Without one the stream never closes, as a stalled download would.
+                const signal = init?.signal;
+                if (!signal) return;
+                signal.addEventListener("abort", () => controller.error(signal.reason));
+              },
+            })
+          )
+      )
+    );
+    await expect(fetchLoadouts()).resolves.toBeNull();
   });
 });
 
