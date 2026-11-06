@@ -40,7 +40,7 @@ import { CLASSES } from "./classes";
 import FilterBar from "./FilterBar";
 import { useSavedLoadouts } from "./useSavedLoadouts";
 import { mergeFresh } from "./savedLoadouts";
-import { decodeLoadout, shareUrl } from "./shareLink";
+import { decodeLoadout, shareUrl, type SharedBuild } from "./shareLink";
 import { withoutParam } from "./urlParams";
 import ChatPanel from "./ChatPanel";
 import {
@@ -91,7 +91,16 @@ export default function App() {
   useLayoutEffect(() => {
     loadoutRef.current = loadout;
   }, [loadout]);
+  // Same, for the shared-link loader: a class switch doesn't touch the tray, so it needs
+  // its own check.
+  const clsRef = useRef(cls);
+  useLayoutEffect(() => {
+    clsRef.current = cls;
+  }, [cls]);
   const [sharedLoading, setSharedLoading] = useState(false);
+  // The link a failed lookup was for, kept so its note can Retry: the param is already
+  // gone from the URL.
+  const [sharedFailed, setSharedFailed] = useState<SharedBuild | null>(null);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [matrix, setMatrix] = useState<ConflictMatrix>({});
@@ -246,7 +255,8 @@ export default function App() {
 
   // Load a shared build from ?build=... once on mount, then strip the param. It tracks
   // its own loading flag rather than `status`, which belongs to the cosmetics grid --
-  // sharing it let this effect blank the grid's loading message mid-fetch.
+  // sharing it let this effect blank the grid's loading message mid-fetch. A failed
+  // lookup keeps the decoded link for its note's Retry (`loadShared`).
   useEffect(() => {
     const param = new URLSearchParams(location.search).get("build");
     if (!param) return;
@@ -256,25 +266,7 @@ export default function App() {
       pinNote("That share link is broken or out of date.");
       return;
     }
-    setCls(decoded.cls);
-    setSharedLoading(true);
-    lookupCosmetics(decoded.defindexes)
-      .then(({ items, missing }) => {
-        // The player equipped, unequipped or loaded something while this was in flight, so
-        // their edit wins and the link's own notes no longer apply.
-        if (loadoutRef.current !== NO_LOADOUT) {
-          pinNote("Kept your changes. The shared loadout wasn't applied.");
-          return;
-        }
-        setLoadout(items);
-        if (missing.length) {
-          pinNote(
-            `${missing.length} item${missing.length === 1 ? "" : "s"} from this link couldn't be found in the catalog.`
-          );
-        }
-      })
-      .catch(() => pinNote("Couldn't load the shared loadout. Is the API running?"))
-      .finally(() => setSharedLoading(false));
+    loadShared(decoded);
   }, []);
 
   // Load cosmetics whenever class or (debounced) query changes.
@@ -405,6 +397,36 @@ export default function App() {
     const name = window.prompt("Name this loadout:", `${cls} build`);
     if (name === null) return;
     saved.save(name, cls, loadout);
+  }
+
+  // The shared link's lookup, at mount and from its failure note's Retry. A result lands
+  // only on the bench as it was when the lookup started: an edit made meanwhile wins.
+  // Setters and refs only (no `changeClass`, which reads `cls`), so the mount effect can
+  // call it without depending on render state.
+  function loadShared(build: SharedBuild) {
+    const base = loadoutRef.current;
+    setCls(build.cls);
+    // As `changeClass`: an Undo would also revert the class.
+    setAdvisorUndo(null);
+    setSharedFailed(null);
+    setSharedLoading(true);
+    lookupCosmetics(build.defindexes)
+      .then(({ items, missing }) => {
+        // The player equipped, unequipped, loaded something or switched class while this
+        // was in flight, so their edit wins and the link's own notes no longer apply.
+        if (loadoutRef.current !== base || clsRef.current !== build.cls) {
+          pinNote("Kept your changes. The shared loadout wasn't applied.");
+          return;
+        }
+        setLoadout(items);
+        if (missing.length) {
+          pinNote(
+            `${missing.length} item${missing.length === 1 ? "" : "s"} from this link couldn't be found in the catalog.`
+          );
+        }
+      })
+      .catch(() => setSharedFailed(build))
+      .finally(() => setSharedLoading(false));
   }
 
   async function loadSaved(items: Cosmetic[], savedCls: string) {
@@ -719,6 +741,21 @@ export default function App() {
               Equipped the advisor's pick.{" "}
               <button onClick={undoAdvisorEquip}>Undo</button>{" "}
               <button onClick={() => setAdvisorUndo(null)} aria-label="Dismiss">
+                ✕
+              </button>
+            </p>
+          )}
+          {sharedFailed && (
+            <p className="share-note" role="alert">
+              Couldn't load the shared loadout.{" "}
+              {loadout.length === 0 ? (
+                <button type="button" onClick={() => loadShared(sharedFailed)}>
+                  Retry
+                </button>
+              ) : (
+                "Empty the tray to retry."
+              )}{" "}
+              <button onClick={() => setSharedFailed(null)} aria-label="Dismiss">
                 ✕
               </button>
             </p>
