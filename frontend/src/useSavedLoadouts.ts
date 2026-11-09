@@ -83,6 +83,10 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
   const epoch = useRef({ n: 0 });
   // A note for the next account read, which would otherwise clear it.
   const pendingNote = useRef<SavedMessage | null>(null);
+  // The last note a read showed that way. If that read fails, Retry carries the note
+  // again: it warns about a write that may still land, the case where a fresh list most
+  // invites saving the same build twice.
+  const carriedNote = useRef<SavedMessage | null>(null);
 
   // Signing in swaps the source of truth to the account; signing out swaps it back.
   // The one-time copy prompt only fires the direction that matters: local -> account,
@@ -111,6 +115,7 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
     // is read the list is empty and the mutating controls are disabled.
     setView({ source: "remote", loadouts: [] });
     setStatus("loading");
+    carriedNote.current = note;
     setMessage(note);
     (async () => {
       let remoteLoadouts: SavedLoadout[];
@@ -209,7 +214,10 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
     busy,
     message,
     dismissMessage: () => setMessage(null),
-    retry: () => setReloadToken((t) => t + 1),
+    retry: () => {
+      if (message !== null && message === carriedNote.current) pendingNote.current = message;
+      setReloadToken((t) => t + 1);
+    },
     save: (name, cls, items) => {
       if (!idle) return;
       if (view.source === "local") {
