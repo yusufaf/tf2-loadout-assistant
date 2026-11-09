@@ -304,6 +304,38 @@ describe("importSummary", () => {
     expect(text).toContain("import the same file again to retry");
     expect(text).toContain("1 were already saved");
     expect(text).toContain("Skipped 1 unreadable item in that file.");
+    expect(importSummary(2, 1, null, 3)).toBe(
+      "Imported 2 of 5; 3 couldn't be saved — import the same file again to retry, builds already saved are skipped. 1 were already saved."
+    );
+  });
+
+  it("reports unconfirmed creates apart from failures, without inviting an immediate re-import", () => {
+    const text = importSummary(2, 1, null, 1, 1);
+    expect(text).toContain("Imported 2 of 4");
+    expect(text).toContain("1 couldn't be saved and 1 couldn't be confirmed");
+    expect(text).toContain("re-reading your list");
+    expect(text).toContain("reload the page before importing the same file again");
+    expect(text).toContain("1 were already saved");
+    expect(text).not.toContain("import the same file again to retry");
+
+    const onlyUnconfirmed = importSummary(2, 0, null, 0, 1);
+    expect(onlyUnconfirmed).toContain("Imported 2 of 3");
+    expect(onlyUnconfirmed).toContain("1 couldn't be confirmed");
+    expect(onlyUnconfirmed).not.toContain("couldn't be saved");
+    expect(onlyUnconfirmed).not.toContain("weren't tried");
+
+    expect(importSummary(2, 0, "Skipped 1 entry with no class.", 0, 1)).toMatch(
+      / Skipped 1 entry with no class\.$/
+    );
+  });
+
+  it("counts creates not tried after an unconfirmed one", () => {
+    const two = importSummary(1, 0, null, 0, 1, 2);
+    expect(two).toContain("Imported 1 of 4");
+    expect(two).toContain("1 couldn't be confirmed and 2 weren't tried");
+    const three = importSummary(1, 0, null, 1, 1, 2);
+    expect(three).toContain("Imported 1 of 5");
+    expect(three).toContain("1 couldn't be saved, 1 couldn't be confirmed and 2 weren't tried");
   });
 });
 

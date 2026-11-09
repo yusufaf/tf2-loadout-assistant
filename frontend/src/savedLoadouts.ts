@@ -196,22 +196,41 @@ export function skippedText(
 }
 
 /** Shared by the local and account import paths. On a partial failure it keeps the
- * duplicate and skipped counts, so the message never hides what happened to the rest. */
+ * duplicate and skipped counts, so the message never hides what happened to the rest.
+ * `unconfirmed` creates got no complete answer and may land minutes later, and
+ * `notTried` ones weren't sent after that; neither invites an immediate re-import, which
+ * is how a late-landing create would become a duplicate. */
 export function importSummary(
   added: number,
   duplicates: number,
   skipped: string | null,
-  failed = 0
+  failed = 0,
+  unconfirmed = 0,
+  notTried = 0
 ): string {
   let text: string;
-  if (failed === 0) {
+  if (failed === 0 && unconfirmed === 0) {
     text = `Imported ${added} loadout${added === 1 ? "" : "s"}`;
     if (duplicates) text += `; ${duplicates} already saved`;
     text += ".";
-  } else {
+  } else if (unconfirmed === 0) {
     text =
       `Imported ${added} of ${added + failed}; ${failed} couldn't be saved — ` +
       "import the same file again to retry, builds already saved are skipped.";
+    if (duplicates) text += ` ${duplicates} were already saved.`;
+  } else {
+    const parts = [
+      ...(failed ? [`${failed} couldn't be saved`] : []),
+      `${unconfirmed} couldn't be confirmed`,
+      ...(notTried ? [`${notTried} weren't tried`] : []),
+    ];
+    const list =
+      parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
+    text =
+      `Imported ${added} of ${added + failed + unconfirmed + notTried}; ${list} — ` +
+      "re-reading your list from your account. Some may take a few minutes to appear, so " +
+      "wait a few minutes and reload the page before importing the same file again; " +
+      "builds already saved are skipped.";
     if (duplicates) text += ` ${duplicates} were already saved.`;
   }
   return skipped ? `${text} ${skipped}` : text;
