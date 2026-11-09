@@ -81,12 +81,10 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
   // counter sits in an object so the effect's cleanup can hold it directly, not read
   // `ref.current` after the fact.
   const epoch = useRef({ n: 0 });
-  // A note for the next account read, which would otherwise clear it.
+  // A note for the next account read, which would otherwise clear it. A read that fails
+  // puts it back for the next one (Retry): it warns about a write that may still land,
+  // and a fresh list is exactly what invites saving the same build twice.
   const pendingNote = useRef<SavedMessage | null>(null);
-  // The last note a read showed that way. If that read fails, Retry carries the note
-  // again: it warns about a write that may still land, the case where a fresh list most
-  // invites saving the same build twice.
-  const carriedNote = useRef<SavedMessage | null>(null);
 
   // Signing in swaps the source of truth to the account; signing out swaps it back.
   // The one-time copy prompt only fires the direction that matters: local -> account,
@@ -115,7 +113,6 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
     // is read the list is empty and the mutating controls are disabled.
     setView({ source: "remote", loadouts: [] });
     setStatus("loading");
-    carriedNote.current = note;
     setMessage(note);
     (async () => {
       let remoteLoadouts: SavedLoadout[];
@@ -128,7 +125,10 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
         // look like "this account owns zero loadouts" -- that's exactly the case the
         // copy prompt below guards against firing on -- so it shows an error + Retry.
         if (e instanceof LoadoutsUnavailableError) showLocal();
-        else setStatus("error");
+        else {
+          pendingNote.current = note;
+          setStatus("error");
+        }
         return;
       }
       if (my !== gen.n) return;
@@ -213,11 +213,11 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
     status,
     busy,
     message,
-    dismissMessage: () => setMessage(null),
-    retry: () => {
-      if (message !== null && message === carriedNote.current) pendingNote.current = message;
-      setReloadToken((t) => t + 1);
+    dismissMessage: () => {
+      pendingNote.current = null;
+      setMessage(null);
     },
+    retry: () => setReloadToken((t) => t + 1),
     save: (name, cls, items) => {
       if (!idle) return;
       if (view.source === "local") {
