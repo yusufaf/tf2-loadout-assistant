@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>yusufaf/renovate-config"],
+  "packageRules": [
+    {
+      "description": "CDK bumps change deployed infrastructure",
+      "matchPackageNames": ["aws-cdk", "aws-cdk-lib", "constructs", "@aws-cdk/**"],
+      "groupName": "aws-cdk",
+      "automerge": false
+    }
+  ]
+}
