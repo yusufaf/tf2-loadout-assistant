@@ -345,35 +345,69 @@ export async function fetchLoadouts(): Promise<LoadoutRecord[] | null> {
   }
 }
 
+const LOADOUT_WRITE_TIMEOUT_MS = 10_000;
+
+/** A saved-loadout write got no complete answer: a network error, no answer within
+ * `LOADOUT_WRITE_TIMEOUT_MS`, a 2xx whose body didn't arrive or parse, or (create only)
+ * a 5xx. It may still have landed, so the caller re-reads the list instead of saying it
+ * failed. */
+export class LoadoutWriteUnconfirmedError extends Error {}
+
+async function sendLoadoutWrite(path: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${BASE}${path}`, {
+      ...init,
+      signal: AbortSignal.timeout(LOADOUT_WRITE_TIMEOUT_MS),
+    });
+  } catch (e) {
+    throw new LoadoutWriteUnconfirmedError("loadout write unconfirmed", { cause: e });
+  }
+}
+
+async function readWrittenRecord(res: Response): Promise<LoadoutRecord> {
+  try {
+    return await res.json();
+  } catch (e) {
+    throw new LoadoutWriteUnconfirmedError("loadout write unconfirmed", { cause: e });
+  }
+}
+
+/** The three writes throw `LoadoutWriteUnconfirmedError` when they can't tell whether
+ * the write landed, and a plain `Error` when the server answered that it didn't. Each
+ * request and response is one loadout (~340 B), the `/auth/me` / logout size class, and
+ * the server does one or two DynamoDB calls, hence 10 s. Create also reads a 5xx as
+ * unconfirmed: the app's 502 can follow a PutItem that landed, and a repeated POST makes
+ * a second row. A rename or delete is safe to repeat, so any non-2xx there is plain. */
 export async function createLoadout(
   name: string,
   cls: string,
   defindexes: number[]
 ): Promise<LoadoutRecord> {
-  const res = await fetch(`${BASE}/me/loadouts`, {
+  const res = await sendLoadoutWrite("/me/loadouts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, cls, defindexes }),
   });
+  if (res.status >= 500) throw new LoadoutWriteUnconfirmedError(`loadouts ${res.status}`);
   if (!res.ok) throw new Error(`loadouts ${res.status}`);
-  return res.json();
+  return readWrittenRecord(res);
 }
 
 export async function updateLoadout(
   id: string,
   patch: { name?: string; cls?: string; defindexes?: number[] }
 ): Promise<LoadoutRecord> {
-  const res = await fetch(`${BASE}/me/loadouts/${id}`, {
+  const res = await sendLoadoutWrite(`/me/loadouts/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error(`loadouts ${res.status}`);
-  return res.json();
+  return readWrittenRecord(res);
 }
 
 export async function deleteLoadout(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/me/loadouts/${id}`, { method: "DELETE" });
+  const res = await sendLoadoutWrite(`/me/loadouts/${id}`, { method: "DELETE" });
   if (!res.ok && res.status !== 404) throw new Error(`loadouts ${res.status}`);
 }
 

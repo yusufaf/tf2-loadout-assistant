@@ -1,15 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ChatHistoryRejectedError,
+  createLoadout,
+  deleteLoadout,
   fetchCosmetic,
   fetchCosmetics,
   fetchInventory,
   fetchLoadouts,
   fetchMe,
+  LoadoutWriteUnconfirmedError,
   lookupCosmetics,
   MAX_COSMETIC_LOOKUP,
   signOut,
   streamChat,
+  updateLoadout,
   type ChatStreamEvent,
 } from "./api";
 
@@ -407,6 +411,182 @@ describe("fetchLoadouts", () => {
       )
     );
     await expect(fetchLoadouts()).resolves.toBeNull();
+  });
+});
+
+// The same never-answers and stalled-body stubs as above, shared by the three writes.
+function stubHungFetch() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_, reject) => {
+          // No signal: never settle, as the hung request would. Throwing here instead
+          // would land in the write's catch and pass without a bound.
+          const signal = init?.signal;
+          if (!signal) return;
+          if (signal.aborted) reject(signal.reason);
+          signal.addEventListener("abort", () => reject(signal.reason));
+        })
+    )
+  );
+}
+
+function stubStalledBody() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async (_url: string, init?: RequestInit) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              // Like a real fetch, the request's signal also errors the body stream.
+              // Without one the stream never closes, as a stalled download would.
+              const signal = init?.signal;
+              if (!signal) return;
+              signal.addEventListener("abort", () => controller.error(signal.reason));
+            },
+          })
+        )
+    )
+  );
+}
+
+function shortenTimeouts() {
+  const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+  return vi.spyOn(AbortSignal, "timeout").mockImplementation(() => realTimeout(5));
+}
+
+const record = {
+  id: "a",
+  name: "Cop",
+  cls: "soldier",
+  defindexes: [30065],
+  created_at: 1,
+  updated_at: 1,
+};
+
+describe("createLoadout", () => {
+  it("returns the stored record, sending it with a timeout signal", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json(record));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(createLoadout("Cop", "soldier", [30065])).resolves.toEqual(record);
+    expect(fetchMock).toHaveBeenCalledWith("/me/loadouts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Cop", cls: "soldier", defindexes: [30065] }),
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("gives up after LOADOUT_WRITE_TIMEOUT_MS on a create that never answers, as unconfirmed", async () => {
+    const timeout = shortenTimeouts();
+    stubHungFetch();
+    const err = await createLoadout("Cop", "soldier", [30065]).catch((e) => e);
+    expect(err).toBeInstanceOf(LoadoutWriteUnconfirmedError);
+    expect(err.cause).toHaveProperty("name", "TimeoutError");
+    expect(timeout).toHaveBeenCalledWith(10_000);
+  });
+
+  it("also reads a body that stalls after a 2xx as unconfirmed", async () => {
+    shortenTimeouts();
+    stubStalledBody();
+    const err = await createLoadout("Cop", "soldier", [30065]).catch((e) => e);
+    expect(err).toBeInstanceOf(LoadoutWriteUnconfirmedError);
+    expect(err.cause).toHaveProperty("name", "TimeoutError");
+  });
+
+  it("reads a request that never reaches the API as unconfirmed", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const err = await createLoadout("Cop", "soldier", [30065]).catch((e) => e);
+    expect(err).toBeInstanceOf(LoadoutWriteUnconfirmedError);
+    expect(err.cause).toBeInstanceOf(TypeError);
+  });
+
+  it("rejects a 4xx as a plain failure, since the server refused it", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 422 })));
+    const err = await createLoadout("Cop", "soldier", [30065]).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toBe("loadouts 422");
+    expect(err).not.toBeInstanceOf(LoadoutWriteUnconfirmedError);
+  });
+
+  it("reads a 5xx as unconfirmed, since the row may have been written before the error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 502 })));
+    const err = await createLoadout("Cop", "soldier", [30065]).catch((e) => e);
+    expect(err).toBeInstanceOf(LoadoutWriteUnconfirmedError);
+    expect(err.message).toBe("loadouts 502");
+  });
+});
+
+describe("updateLoadout", () => {
+  it("returns the updated record, sending the patch with a timeout signal", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json(record));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(updateLoadout("a", { name: "Cop" })).resolves.toEqual(record);
+    expect(fetchMock).toHaveBeenCalledWith("/me/loadouts/a", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Cop" }),
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("gives up after LOADOUT_WRITE_TIMEOUT_MS on a rename that never answers, as unconfirmed", async () => {
+    const timeout = shortenTimeouts();
+    stubHungFetch();
+    const err = await updateLoadout("a", { name: "Cop" }).catch((e) => e);
+    expect(err).toBeInstanceOf(LoadoutWriteUnconfirmedError);
+    expect(err.cause).toHaveProperty("name", "TimeoutError");
+    expect(timeout).toHaveBeenCalledWith(10_000);
+  });
+
+  it("also reads a body that stalls after a 2xx as unconfirmed", async () => {
+    shortenTimeouts();
+    stubStalledBody();
+    const err = await updateLoadout("a", { name: "Cop" }).catch((e) => e);
+    expect(err).toBeInstanceOf(LoadoutWriteUnconfirmedError);
+    expect(err.cause).toHaveProperty("name", "TimeoutError");
+  });
+
+  it("rejects a non-2xx as a plain failure, since retrying a rename is safe", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 502 })));
+    const err = await updateLoadout("a", { name: "Cop" }).catch((e) => e);
+    expect(err.message).toBe("loadouts 502");
+    expect(err).not.toBeInstanceOf(LoadoutWriteUnconfirmedError);
+  });
+});
+
+describe("deleteLoadout", () => {
+  it("resolves on a 204, sending the delete with a timeout signal", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(deleteLoadout("a")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith("/me/loadouts/a", {
+      method: "DELETE",
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("gives up after LOADOUT_WRITE_TIMEOUT_MS on a delete that never answers, as unconfirmed", async () => {
+    const timeout = shortenTimeouts();
+    stubHungFetch();
+    const err = await deleteLoadout("a").catch((e) => e);
+    expect(err).toBeInstanceOf(LoadoutWriteUnconfirmedError);
+    expect(err.cause).toHaveProperty("name", "TimeoutError");
+    expect(timeout).toHaveBeenCalledWith(10_000);
+  });
+
+  it("treats a 404 as already deleted", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
+    await expect(deleteLoadout("a")).resolves.toBeUndefined();
+  });
+
+  it("rejects any other non-2xx as a plain failure, since retrying a delete is safe", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 500 })));
+    const err = await deleteLoadout("a").catch((e) => e);
+    expect(err.message).toBe("loadouts 500");
+    expect(err).not.toBeInstanceOf(LoadoutWriteUnconfirmedError);
   });
 });
 
