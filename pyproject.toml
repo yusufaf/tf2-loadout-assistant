@@ -42,6 +42,13 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/tf2_loadout"]
 
+[tool.uv]
+# The direct dependencies above have no upper bounds, so `uv lock --upgrade-package`
+# for a security fix can pull a transitive major in. fastmcp declares mcp<2 for its
+# client/server extras, but the resolver otherwise picks mcp 2.x. Lift this as a
+# deliberate upgrade once fastmcp supports it.
+constraint-dependencies = ["mcp<2"]
+
 [tool.uv.sources]
 tf2-wiki-mcp = { path = "../tf2-wiki-mcp", editable = true }
 
