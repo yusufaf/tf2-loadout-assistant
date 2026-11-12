@@ -81,6 +81,10 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
   // counter sits in an object so the effect's cleanup can hold it directly, not read
   // `ref.current` after the fact.
   const epoch = useRef({ n: 0 });
+  // A note for the next account read, which would otherwise clear it. A read that fails
+  // puts it back for the next one (Retry): it warns about a write that may still land,
+  // and a fresh list is exactly what invites saving the same build twice.
+  const pendingNote = useRef<SavedMessage | null>(null);
 
   // Signing in swaps the source of truth to the account; signing out swaps it back.
   // The one-time copy prompt only fires the direction that matters: local -> account,
@@ -88,6 +92,10 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
   useEffect(() => {
     const gen = epoch.current;
     const my = gen.n;
+    // Taken on every run; the signed-out path drops it, so account wording never shows
+    // over the local list.
+    const note = pendingNote.current;
+    pendingNote.current = null;
     const showLocal = () => {
       const stored = store.readStored();
       setView({ source: "local", loadouts: stored.loadouts });
@@ -105,7 +113,7 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
     // is read the list is empty and the mutating controls are disabled.
     setView({ source: "remote", loadouts: [] });
     setStatus("loading");
-    setMessage(null);
+    setMessage(note);
     (async () => {
       let remoteLoadouts: SavedLoadout[];
       try {
@@ -117,12 +125,15 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
         // look like "this account owns zero loadouts" -- that's exactly the case the
         // copy prompt below guards against firing on -- so it shows an error + Retry.
         if (e instanceof LoadoutsUnavailableError) showLocal();
-        else setStatus("error");
+        else {
+          pendingNote.current = note;
+          setStatus("error");
+        }
         return;
       }
       if (my !== gen.n) return;
       let created: SavedLoadout[] = [];
-      let copyFailed: string | null = null;
+      let copyNote: remote.WriteFailure | null = null;
       const local = store.loadAll();
       if (
         remoteLoadouts.length === 0 &&
@@ -141,21 +152,21 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
             // above ever loosens.
             const result = await remote.importToAccount(local, remoteLoadouts);
             created = result.created;
-            if (result.failed) {
-              copyFailed =
-                `Copied ${result.created.length} of ${local.length} local loadouts to your account; ` +
-                "the rest are still saved in this browser. To copy them, sign out, Export, " +
-                "sign back in and Import — builds already copied are skipped.";
-            }
+            copyNote = remote.copySummary(result, local.length);
           }
         } finally {
           copyPromptInFlight = false;
         }
         if (my !== gen.n) return;
+        if (copyNote?.reread) {
+          pendingNote.current = { kind: "error", text: copyNote.text };
+          setReloadToken((t) => t + 1);
+          return;
+        }
       }
       setView({ source: "remote", loadouts: [...created, ...remoteLoadouts] });
       setStatus("ready");
-      if (copyFailed) setMessage({ kind: "error", text: copyFailed });
+      if (copyNote) setMessage({ kind: "error", text: copyNote.text });
     })();
     return () => {
       gen.n++;
@@ -164,11 +175,21 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
 
   const idle = status === "ready" && !busy;
 
+  // A write that may have landed: show the note over a fresh read of the account list
+  // rather than trust the view.
+  const reread = (note: SavedMessage) => {
+    pendingNote.current = note;
+    setReloadToken((t) => t + 1);
+  };
+
   // Runs one account mutation. Captures the epoch itself and hands the task an alive()
   // check, so a result that lands after sign-out never writes account data (or account
   // wording) over the local list. busy always clears, or a sign-out mid-request would
   // leave the controls disabled.
-  const run = async (task: (alive: () => boolean) => Promise<void>, failText: string) => {
+  const run = async (
+    task: (alive: () => boolean) => Promise<void>,
+    action: remote.WriteAction
+  ) => {
     const gen = epoch.current;
     const my = gen.n;
     const alive = () => my === gen.n;
@@ -176,8 +197,12 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
     setMessage(null);
     try {
       await task(alive);
-    } catch {
-      if (alive()) setMessage({ kind: "error", text: failText });
+    } catch (e) {
+      if (!alive()) return;
+      const failure = remote.describeWriteFailure(e, action);
+      const note: SavedMessage = { kind: "error", text: failure.text };
+      if (failure.reread) reread(note);
+      else setMessage(note);
     } finally {
       setBusy(false);
     }
@@ -188,7 +213,10 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
     status,
     busy,
     message,
-    dismissMessage: () => setMessage(null),
+    dismissMessage: () => {
+      pendingNote.current = null;
+      setMessage(null);
+    },
     retry: () => setReloadToken((t) => t + 1),
     save: (name, cls, items) => {
       if (!idle) return;
@@ -199,7 +227,7 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
       void run(async (alive) => {
         const l = await remote.create(name, cls, items);
         if (alive()) setView((v) => ({ ...v, loadouts: [l, ...v.loadouts] }));
-      }, "Couldn't save the loadout to your Steam account. Try again.");
+      }, "save");
     },
     rename: (id, name) => {
       if (!idle) return;
@@ -218,7 +246,7 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
         if (alive()) {
           setView((v) => ({ ...v, loadouts: v.loadouts.map((l) => (l.id === id ? next : l)) }));
         }
-      }, "Couldn't rename the loadout. Try again.");
+      }, "rename");
     },
     remove: (id) => {
       if (!idle) return;
@@ -229,7 +257,7 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
       void run(async (alive) => {
         await remote.remove(id);
         if (alive()) setView((v) => ({ ...v, loadouts: v.loadouts.filter((l) => l.id !== id) }));
-      }, "Couldn't delete the loadout. Try again.");
+      }, "delete");
     },
     exportJson: () =>
       view.source === "remote"
@@ -265,12 +293,24 @@ export function useSavedLoadouts(steamId: string | null): UseSavedLoadouts {
       void run(async (alive) => {
         const r = await remote.importToAccount(parsed.loadouts, view.loadouts);
         if (!alive()) return;
+        const note: SavedMessage = {
+          kind: r.failed || r.unconfirmed ? "error" : "info",
+          text: store.importSummary(
+            r.created.length,
+            r.duplicates,
+            skipped,
+            r.failed,
+            r.unconfirmed,
+            r.notTried
+          ),
+        };
+        if (r.unconfirmed) {
+          reread(note);
+          return;
+        }
         setView((v) => ({ ...v, loadouts: [...r.created, ...v.loadouts] }));
-        setMessage({
-          kind: r.failed ? "error" : "info",
-          text: store.importSummary(r.created.length, r.duplicates, skipped, r.failed),
-        });
-      }, "Couldn't import to your account. Try again.");
+        setMessage(note);
+      }, "import");
     },
   };
 }
