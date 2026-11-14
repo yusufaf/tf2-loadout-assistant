@@ -140,7 +140,7 @@ Layout constants: app caps at `1180px` centered; the bench is a `1fr 340px` grid
 
 | Component | Class | Notes |
 |---|---|---|
-| Item card | `.cell` | Backpack-slot look: gradient fill, 2px ink border, 4px gold-deep top edge ("quality edge"), hard shadow, `.selected`/`.dimmed` modifiers, `.equipped-tick` badge |
+| Item card | `.cell` | Backpack-slot look: gradient fill, 2px ink border, 4px gold-deep top edge ("quality edge"), hard shadow, `.selected`/`.dimmed` modifiers, `.equipped-tick` badge. Equip is a real `.cell-equip` button inside `.name`, stretched over the whole card by an `::after` overlay; the `bp.tf` link is its sibling, raised above the overlay with `z-index: 1`. The card's focus ring is drawn on `.cell` via `:has(> .name > .cell-equip:focus-visible)` on purpose, with the button's own outline suppressed, so don't restore the button outline (it would draw a second ring) |
 | Tray panel | `.tray` | Sticky, paper-dark, 3px ink border |
 | Equipped row | `.slot` | `.clash` modifier switches border/background to stamp/blush |
 | Conflict warning | `.stamp` | Rotated -4deg, stamp-colored, uppercase — reserved for the INCOMPATIBLE state, don't reuse the rotation trick elsewhere |
