@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ChatProvider } from "./api";
 import {
   STORAGE_KEY,
   clearLlmKey,
   clearTabOnlyLlmKey,
+  keyRejectedMessage,
+  keyToggleCopy,
   loadLlmKey,
   parseStoredKey,
   saveLlmKey,
@@ -177,5 +180,50 @@ describe("storage wrappers", () => {
     expect(loadLlmKey()).toBeNull();
     expect(() => saveLlmKey({ provider: "openai", apiKey: "sk" }, false)).not.toThrow();
     expect(() => clearLlmKey()).not.toThrow();
+  });
+});
+
+const PROVIDERS: ChatProvider[] = [
+  { id: "anthropic", label: "Anthropic", model: "m", keys_url: "", pricing_url: "", note: "" },
+];
+
+describe("keyToggleCopy", () => {
+  it("names the provider by its label once the list has loaded", () => {
+    expect(keyToggleCopy({ provider: "anthropic", apiKey: "k", remember: true }, PROVIDERS)).toEqual({
+      text: "Anthropic key",
+      title: "Using your Anthropic key",
+    });
+  });
+
+  it("says a tab-only key is for this tab only", () => {
+    expect(
+      keyToggleCopy({ provider: "anthropic", apiKey: "k", remember: false }, PROVIDERS).title
+    ).toBe("Using your Anthropic key for this tab only");
+  });
+
+  it("never shows the raw provider id before the list loads", () => {
+    const copy = keyToggleCopy({ provider: "anthropic", apiKey: "k", remember: true }, []);
+    expect(copy).toEqual({ text: "API key", title: "Using your API key" });
+    expect(copy.text).not.toContain("anthropic");
+  });
+
+  it("falls back the same way for a provider the server no longer offers", () => {
+    expect(keyToggleCopy({ provider: "gone", apiKey: "k", remember: true }, PROVIDERS).text).toBe(
+      "API key"
+    );
+  });
+});
+
+describe("keyRejectedMessage", () => {
+  it("names the provider once the list has loaded", () => {
+    expect(keyRejectedMessage("anthropic", PROVIDERS)).toBe(
+      "Anthropic rejected that key. Check it and try again."
+    );
+  });
+
+  it("says 'the provider' rather than the raw id while the list is unknown", () => {
+    expect(keyRejectedMessage("anthropic", [])).toBe(
+      "The provider rejected that key. Check it and try again."
+    );
   });
 });

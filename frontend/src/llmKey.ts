@@ -16,6 +16,8 @@
  * key is what `remember` means; the envelope is the same in both.
  */
 
+import type { ChatProvider } from "./api";
+
 export interface LlmKey {
   provider: string;
   apiKey: string;
@@ -115,4 +117,27 @@ export function clearLlmKey(): void {
  * the remembered one may already be the next person's. */
 export function clearTabOnlyLlmKey(): void {
   remove(tabOnly);
+}
+
+/** The provider's display name, or null while `/chat/providers` hasn't loaded or the
+ * server no longer offers it. Callers show neutral copy then: the id is an internal
+ * value, never something to show the player. */
+export function providerLabel(providers: ChatProvider[], id: string): string | null {
+  return providers.find((p) => p.id === id)?.label ?? null;
+}
+
+/** The advisor header's key toggle: its text and tooltip. */
+export function keyToggleCopy(
+  key: SavedLlmKey,
+  providers: ChatProvider[]
+): { text: string; title: string } {
+  const name = providerLabel(providers, key.provider) ?? "API";
+  return {
+    text: `${name} key`,
+    title: `Using your ${name} key${key.remember ? "" : " for this tab only"}`,
+  };
+}
+
+export function keyRejectedMessage(provider: string, providers: ChatProvider[]): string {
+  return `${providerLabel(providers, provider) ?? "The provider"} rejected that key. Check it and try again.`;
 }
