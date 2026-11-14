@@ -8,6 +8,7 @@ import {
   fetchInventory,
   fetchLoadouts,
   fetchMe,
+  formatLoadoutTotal,
   LoadoutWriteUnconfirmedError,
   lookupCosmetics,
   MAX_COSMETIC_LOOKUP,
@@ -15,6 +16,8 @@ import {
   streamChat,
   updateLoadout,
   type ChatStreamEvent,
+  type Cosmetic,
+  type Price,
 } from "./api";
 
 afterEach(() => {
@@ -643,5 +646,62 @@ describe("streamChat", () => {
     const err = await streamChat("m", [], [], llm, () => {}).catch((e) => e);
     expect(err).toBeInstanceOf(Error);
     expect(err).not.toBeInstanceOf(ChatHistoryRejectedError);
+  });
+});
+
+describe("formatLoadoutTotal", () => {
+  const item = (price: Price | null): Cosmetic => ({
+    defindex: 1,
+    name: "Item",
+    equip_regions: ["hat"],
+    used_by_classes: ["Scout"],
+    item_slot: "misc",
+    image_url: null,
+    price,
+    paintable: false,
+    holiday_restriction: null,
+    styles: [],
+  });
+  const metal = (value: number): Price => ({
+    currency: "metal",
+    value,
+    value_high: null,
+    ref_value: value,
+  });
+
+  it("shows a dash for an empty tray", () => {
+    expect(formatLoadoutTotal([])).toBe("—");
+  });
+
+  it("sums ref and rounds like a single price", () => {
+    expect(formatLoadoutTotal([item(metal(1.33)), item(metal(1.33)), item(metal(1.33))])).toBe(
+      "3.99 ref"
+    );
+  });
+
+  it("totals metal and keys prices as one ref figure", () => {
+    const keys: Price = { currency: "keys", value: 2, value_high: null, ref_value: 120 };
+    expect(formatLoadoutTotal([item(metal(5)), item(keys)])).toBe("125 ref");
+  });
+
+  it("counts unpriced and hat-priced items as unknown instead of guessing", () => {
+    const hat: Price = { currency: "hat", value: 1, value_high: null, ref_value: null };
+    expect(formatLoadoutTotal([item(metal(5)), item(null), item(hat)])).toBe(
+      "5 ref + 2 unknown"
+    );
+  });
+
+  it("counts a keys price with no key rate as unknown", () => {
+    const keys: Price = { currency: "keys", value: 1, value_high: null, ref_value: null };
+    expect(formatLoadoutTotal([item(keys)])).toBe("1 unknown");
+  });
+
+  it("totals the low end of a price range", () => {
+    const range: Price = { currency: "metal", value: 2, value_high: 3, ref_value: 2 };
+    expect(formatLoadoutTotal([item(range)])).toBe("2 ref");
+  });
+
+  it("keeps a known zero rather than dropping it", () => {
+    expect(formatLoadoutTotal([item(metal(0))])).toBe("0 ref");
   });
 });

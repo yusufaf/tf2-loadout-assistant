@@ -9,6 +9,7 @@ import {
   fetchInventory,
   lookupCosmetics,
   formatPrice,
+  formatLoadoutTotal,
   backpackUrl,
   type Cosmetic,
   type Conflict,
@@ -60,22 +61,13 @@ import {
   type SignInState,
 } from "./signInCheck";
 
-function priceTotals(items: Cosmetic[]): string {
-  const sums = new Map<string, number>();
-  for (const it of items) {
-    if (!it.price) continue;
-    sums.set(it.price.currency, (sums.get(it.price.currency) ?? 0) + it.price.value);
-  }
-  if (sums.size === 0) return "—";
-  const label: Record<string, string> = { metal: "ref", keys: "keys", hat: "hat" };
-  return [...sums]
-    .map(([cur, v]) => `${+v.toFixed(2)} ${label[cur] ?? cur}`)
-    .join(" + ");
-}
-
 // The tray's initial value. Every edit makes a new array, so identity with this means
 // untouched, even when an edit has emptied the tray again.
 const NO_LOADOUT: Cosmetic[] = [];
+
+// The browser reads an export's blob URL after click() returns, so revoking it in the
+// same tick can cancel the download. 40 s is FileSaver.js's value for the same race.
+const EXPORT_URL_LIFETIME_MS = 40_000;
 
 const BENCH_UNREACHABLE = "Can't reach the bench. Is the API running?";
 
@@ -489,7 +481,7 @@ export default function App() {
     a.href = url;
     a.download = "tf2-loadouts.json";
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), EXPORT_URL_LIFETIME_MS);
   }
 
   async function handleSignOut() {
@@ -708,7 +700,7 @@ export default function App() {
 
               <div className="totals">
                 <span className="label">Est. value</span>
-                <span className="sum">{priceTotals(loadout)}</span>
+                <span className="sum">{formatLoadoutTotal(loadout)}</span>
               </div>
 
               <a

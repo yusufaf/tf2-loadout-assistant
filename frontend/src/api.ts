@@ -126,15 +126,6 @@ export async function fetchConflicts(defindexes: number[]): Promise<Conflict[]> 
   return (await res.json()).conflicts;
 }
 
-/** A turn's worth of chat. `history` is opaque transcript state we hand straight back. */
-export interface ChatReply {
-  message: string;
-  suggested_defindexes: number[];
-  conflicts: Conflict[];
-  history: unknown[];
-  steam_id: string | null;
-}
-
 /** The API is up but the chat service failed to build, so the panel should stay hidden. */
 export class ChatUnavailableError extends Error {}
 
@@ -420,21 +411,6 @@ export async function deleteLoadout(id: string): Promise<void> {
  */
 export const MAX_MESSAGE_CHARS = 1900;
 
-export async function sendChat(
-  message: string,
-  history: unknown[],
-  equipped: number[],
-  llm: LlmKey
-): Promise<ChatReply> {
-  const res = await fetch(`${BASE}/chat`, {
-    method: "POST",
-    headers: chatHeaders(llm),
-    body: JSON.stringify({ message, history, equipped }),
-  });
-  await throwForChatStatus(res);
-  return res.json();
-}
-
 /** One newline-delimited JSON line from /chat/stream. */
 export interface ChatStreamEvent {
   kind: "tool" | "final" | "error";
@@ -506,6 +482,26 @@ export function formatPrice(p: Price): string {
   const unit = CURRENCY_LABEL[p.currency] ?? p.currency;
   const lo = +p.value.toFixed(2);
   return p.value_high ? `${lo}–${+p.value_high.toFixed(2)} ${unit}` : `${lo} ${unit}`;
+}
+
+/** The tray's estimated value: every `ref_value` summed into one ref figure, plus a
+ * count of items it can't include (no price, or a hat/USD price with no ref rate). */
+export function formatLoadoutTotal(items: Cosmetic[]): string {
+  let sum = 0;
+  let known = 0;
+  for (const it of items) {
+    const ref = it.price?.ref_value;
+    if (ref == null) continue;
+    sum += ref;
+    known++;
+  }
+  const unknown = items.length - known;
+  const parts: string[] = [];
+  if (known > 0) {
+    parts.push(formatPrice({ currency: "metal", value: sum, value_high: null, ref_value: sum }));
+  }
+  if (unknown > 0) parts.push(`${unknown} unknown`);
+  return parts.join(" + ") || "—";
 }
 
 // backpack.tf overview page — quality-agnostic, keyed on item name.
