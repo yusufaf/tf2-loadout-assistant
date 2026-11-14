@@ -628,6 +628,7 @@ export default function App() {
                       type="button"
                       className="cell-equip"
                       aria-pressed={equippedIds.has(c.defindex)}
+                      aria-describedby={clashesWith.length > 0 ? `clash-${c.defindex}` : undefined}
                       onClick={() => equip(c)}
                       title={equippedIds.has(c.defindex) ? "Remove from loadout" : "Add to loadout"}
                     >
@@ -635,7 +636,7 @@ export default function App() {
                     </button>
                   </div>
                   {clashesWith.length > 0 && (
-                    <div className="clash-badge">
+                    <div className="clash-badge" id={`clash-${c.defindex}`}>
                       clashes with {clashesWith.join(", ")}
                     </div>
                   )}
