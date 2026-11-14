@@ -65,6 +65,10 @@ import {
 // untouched, even when an edit has emptied the tray again.
 const NO_LOADOUT: Cosmetic[] = [];
 
+// The browser reads an export's blob URL after click() returns, so revoking it in the
+// same tick can cancel the download. 40 s is FileSaver.js's value for the same race.
+const EXPORT_URL_LIFETIME_MS = 40_000;
+
 const BENCH_UNREACHABLE = "Can't reach the bench. Is the API running?";
 
 export default function App() {
@@ -477,7 +481,7 @@ export default function App() {
     a.href = url;
     a.download = "tf2-loadouts.json";
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), EXPORT_URL_LIFETIME_MS);
   }
 
   async function handleSignOut() {
