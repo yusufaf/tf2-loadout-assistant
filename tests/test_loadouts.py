@@ -5,16 +5,23 @@ API" rule intact (CLAUDE.md), same story as the LLM's TestModel fixture.
 
 from __future__ import annotations
 
+import re
 import threading
+from pathlib import Path
 
 import boto3
 import pytest
 from moto import mock_aws
 
+from tf2_loadout import loadouts
 from tf2_loadout.loadouts import DynamoLoadoutStore, LoadoutStoreError, _pk, _sk
 
 TABLE_NAME = "tf2-loadout-test-main"
 REGION = "us-west-2"
+
+FRONTEND_API = Path(__file__).resolve().parents[1] / "frontend" / "src" / "api.ts"
+# Left of the browser's write timeout for the round trip and Fly's proxy.
+_NETWORK_MARGIN_S = 2
 
 
 @pytest.fixture
@@ -46,6 +53,24 @@ def test_each_thread_gets_its_own_table(store):
     assert other[0] is not store._table()
 
 
+def test_table_client_has_bounded_timeouts_and_retries(store):
+    cfg = store._table().meta.client.meta.config
+    assert cfg.connect_timeout == 1
+    assert cfg.read_timeout == 1
+    assert cfg.retries == {"mode": "standard", "total_max_attempts": 2}
+
+
+def test_worst_case_write_ends_well_inside_the_client_timeout():
+    # The browser gives up on a write after LOADOUT_WRITE_TIMEOUT_MS and re-reads the
+    # list; a write that ends server-side after that can land behind the re-read.
+    match = re.search(r"LOADOUT_WRITE_TIMEOUT_MS = ([\d_]+);", FRONTEND_API.read_text("utf-8"))
+    assert match, "LOADOUT_WRITE_TIMEOUT_MS not found in frontend/src/api.ts"
+    client_s = int(match.group(1).replace("_", "")) / 1000
+    budget_s = client_s - _NETWORK_MARGIN_S
+    assert loadouts._CALL_WORST_CASE_S <= budget_s  # create: one call
+    assert loadouts._LOOKUP_DEADLINE_S + loadouts._CALL_WORST_CASE_S <= budget_s  # update/delete
+
+
 async def test_store_ops_build_the_table_on_the_worker_thread(store, monkeypatch):
     seen: list[int] = []
     real = store._table
@@ -58,6 +83,25 @@ async def test_store_ops_build_the_table_on_the_worker_thread(store, monkeypatch
     await store.list("s1")
     assert seen
     assert threading.get_ident() not in seen
+
+
+async def test_list_reads_are_strongly_consistent(store, monkeypatch):
+    await store.create("s1", "A", "Spy", [1])
+    calls: list[dict] = []
+    real = store._table
+
+    class SpyTable:
+        def __init__(self, table):
+            self._table = table
+
+        def query(self, **kwargs):
+            calls.append(kwargs)
+            return self._table.query(**kwargs)
+
+    monkeypatch.setattr(store, "_table", lambda: SpyTable(real()))
+    assert len(await store.list("s1")) == 1
+    assert calls
+    assert all(kw.get("ConsistentRead") is True for kw in calls)
 
 
 async def test_dynamo_failure_raises_loadout_store_error():
@@ -128,6 +172,28 @@ async def test_update_racing_delete_returns_none_without_creating_a_row(store, m
         m.setattr(store, "_find_sk", stale_find_sk)
         assert await store.update("s1", created.id, name="x") is None
     assert await store.list("s1") == []
+
+
+async def test_update_after_a_slow_lookup_gives_up_without_writing(store, monkeypatch):
+    created = await store.create("s1", "A", "Spy", [1])
+    monkeypatch.setattr(loadouts, "_LOOKUP_DEADLINE_S", -1.0)
+    with pytest.raises(LoadoutStoreError):
+        await store.update("s1", created.id, name="x")
+    assert [l.name for l in await store.list("s1")] == ["A"]
+
+
+async def test_delete_after_a_slow_lookup_gives_up_without_deleting(store, monkeypatch):
+    created = await store.create("s1", "A", "Spy", [1])
+    monkeypatch.setattr(loadouts, "_LOOKUP_DEADLINE_S", -1.0)
+    with pytest.raises(LoadoutStoreError):
+        await store.delete("s1", created.id)
+    assert [l.id for l in await store.list("s1")] == [created.id]
+
+
+async def test_slow_lookup_of_a_missing_loadout_is_still_not_found(store, monkeypatch):
+    monkeypatch.setattr(loadouts, "_LOOKUP_DEADLINE_S", -1.0)
+    assert await store.update("s1", "nope", name="x") is None
+    assert await store.delete("s1", "nope") is False
 
 
 async def test_list_skips_malformed_rows(store):

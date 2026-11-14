@@ -15,6 +15,17 @@ plain ``int`` here so a ``Decimal`` never leaks past this module into the JSON A
 boto3 resources aren't thread-safe and anyio runs each call on a pooled worker thread,
 so every worker gets its own Table (built from one shared, lock-guarded Session). Any
 boto3/botocore failure leaves this module as ``LoadoutStoreError``.
+
+A worker thread can't be cancelled, so a request the browser gave up on keeps running
+here; the bound on it has to be botocore's own. Its defaults (60 s connect and read
+timeouts, legacy retries, 10 attempts for DynamoDB) let a write land minutes after the
+browser stopped waiting (``LOADOUT_WRITE_TIMEOUT_MS``, 10 s) and re-read the list.
+``_CLIENT_CONFIG`` keeps one call to ~5 s, so create ends in ~5 s and update/delete
+(a lookup, then the write) in ~7.5 s. That budget leaves out DNS resolution (urllib3
+resolves before applying the connect timeout) and assumes one endpoint address, and the
+timeouts apply per socket operation, not per call. A botocore upgrade that turns on its
+new retry behaviour would also honour ``x-amz-retry-after`` on throttles, up to 5 s more,
+which the budget test can't see.
 """
 
 from __future__ import annotations
@@ -30,6 +41,7 @@ from typing import Any, Protocol, TypeVar
 import anyio
 import boto3
 from boto3.dynamodb.conditions import Key
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 logger = logging.getLogger(__name__)
@@ -37,6 +49,22 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 _SK_PREFIX = "LOADOUT#"
+
+_CONNECT_TIMEOUT_S = 1
+_READ_TIMEOUT_S = 1
+_MAX_ATTEMPTS = 2
+# botocore standard mode: the retry after attempt n waits rand() * min(2 ** (n - 1), 20) s.
+_MAX_BACKOFF_S = sum(min(2 ** (n - 1), 20) for n in range(1, _MAX_ATTEMPTS))
+_CALL_WORST_CASE_S = _MAX_ATTEMPTS * (_CONNECT_TIMEOUT_S + _READ_TIMEOUT_S) + _MAX_BACKOFF_S
+_CLIENT_CONFIG = Config(
+    connect_timeout=_CONNECT_TIMEOUT_S,
+    read_timeout=_READ_TIMEOUT_S,
+    # total_max_attempts, not max_attempts: botocore reads max_attempts as retries, one more call.
+    retries={"mode": "standard", "total_max_attempts": _MAX_ATTEMPTS},
+)
+# update/delete look the row up before writing; a lookup slower than this doesn't start
+# the write, so lookup plus write still ends inside the client's timeout.
+_LOOKUP_DEADLINE_S = 2.5
 
 
 class LoadoutStoreError(Exception):
@@ -108,7 +136,9 @@ class DynamoLoadoutStore:
         table = getattr(self._local, "table", None)
         if table is None:
             with self._session_lock:
-                table = self._session.resource("dynamodb").Table(self._table_name)
+                table = self._session.resource("dynamodb", config=_CLIENT_CONFIG).Table(
+                    self._table_name
+                )
             self._local.table = table
         return table
 
@@ -126,7 +156,10 @@ class DynamoLoadoutStore:
             kwargs: dict[str, Any] = {
                 "KeyConditionExpression": (
                     Key("PK").eq(_pk(steam_id)) & Key("SK").begins_with(_SK_PREFIX)
-                )
+                ),
+                # The browser's re-read after a write it couldn't confirm, and _find_sk
+                # right after a create, must see that write.
+                "ConsistentRead": True,
             }
             items: list[dict] = []
             while True:
@@ -173,9 +206,18 @@ class DynamoLoadoutStore:
         """A loadout id alone isn't a full sort key (it also carries `createdAt`), so
         update/delete look the item up by id first. That scans the player's full
         (paginated) list, which is cheap because the list is small.
+
+        A lookup that took longer than `_LOOKUP_DEADLINE_S` raises instead of returning,
+        so the write never starts: the write after it must still end inside the browser's
+        timeout (~7.5 s worst case together). A multi-page lookup still runs to
+        completion -- each page is bounded, the page count isn't -- and the deadline only
+        stops the write from starting after it.
         """
+        start = time.monotonic()
         for loadout in await self.list(steam_id):
             if loadout.id == loadout_id:
+                if time.monotonic() - start > _LOOKUP_DEADLINE_S:
+                    raise LoadoutStoreError("loadout lookup too slow to start the write in time")
                 return _sk(loadout.created_at, loadout_id)
         return None
 

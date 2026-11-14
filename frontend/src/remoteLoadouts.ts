@@ -163,9 +163,10 @@ export interface WriteFailure {
   reread: boolean;
 }
 
-// A write the server is still retrying can land minutes after the re-read, so the
-// unconfirmed texts never call the re-read list final, and never say it finished: the
-// note shows before the read does, and that read can fail too.
+// The server ends a write within ~8 s of receiving it (loadouts.py), but a request that
+// reached it late can still land after the re-read, so the unconfirmed texts never call
+// the re-read list final, and never say it finished: the note shows before the read
+// does, and that read can fail too.
 const FAILED_TEXT: Record<WriteAction, string> = {
   save: "Couldn't save the loadout to your Steam account. Try again.",
   rename: "Couldn't rename the loadout. Try again.",
@@ -176,13 +177,13 @@ const FAILED_TEXT: Record<WriteAction, string> = {
 const UNCONFIRMED_TEXT: Record<WriteAction, string> = {
   save:
     "Couldn't confirm the loadout was saved to your Steam account; re-reading your list from it. " +
-    "It may take a few minutes to appear, so wait a few minutes and reload the page before saving it again.",
+    "If it doesn't appear, wait a minute and reload the page before saving it again.",
   rename: "Couldn't confirm the rename on your Steam account; re-reading your list from it.",
   delete: "Couldn't confirm the delete on your Steam account; re-reading your list from it.",
   // Unreachable today (importToAccount never throws); kept so every action has a text.
   import:
     "Couldn't confirm the import on your Steam account; re-reading your list from it. " +
-    "Builds may take a few minutes to appear, so wait a few minutes and reload the page before importing again.",
+    "If builds are missing, wait a minute and reload the page before importing again.",
 };
 
 export function describeWriteFailure(e: unknown, action: WriteAction): WriteFailure {
@@ -208,8 +209,8 @@ export function copySummary(result: ImportResult, localCount: number): WriteFail
   return {
     reread: true,
     text:
-      `${copied}; ${result.unconfirmed} couldn't be confirmed and may take a few minutes to appear, ` +
-      "so your list is being re-read. The rest are still saved in this browser. To copy them, " +
-      "wait a few minutes, then sign out, Export, sign back in and Import — builds already copied are skipped.",
+      `${copied}; ${result.unconfirmed} couldn't be confirmed, so your list is being re-read. ` +
+      "The rest are still saved in this browser. To copy them, wait a minute, then sign out, " +
+      "Export, sign back in and Import — builds already copied are skipped.",
   };
 }
