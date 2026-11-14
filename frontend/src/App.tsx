@@ -618,23 +618,22 @@ export default function App() {
                   ]
                     .filter(Boolean)
                     .join(" ")}
-                  role="button"
-                  tabIndex={0}
-                  aria-pressed={equippedIds.has(c.defindex)}
-                  onClick={() => equip(c)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      equip(c);
-                    }
-                  }}
-                  title={equippedIds.has(c.defindex) ? "Remove from loadout" : "Add to loadout"}
                 >
                   <div className="thumb">
                     {equippedIds.has(c.defindex) && <span className="equipped-tick">✓</span>}
                     {c.image_url && <img src={c.image_url} alt="" loading="lazy" />}
                   </div>
-                  <div className="name">{c.name}</div>
+                  <div className="name">
+                    <button
+                      type="button"
+                      className="cell-equip"
+                      aria-pressed={equippedIds.has(c.defindex)}
+                      onClick={() => equip(c)}
+                      title={equippedIds.has(c.defindex) ? "Remove from loadout" : "Add to loadout"}
+                    >
+                      {c.name}
+                    </button>
+                  </div>
                   {clashesWith.length > 0 && (
                     <div className="clash-badge">
                       clashes with {clashesWith.join(", ")}
@@ -657,7 +656,6 @@ export default function App() {
                       target="_blank"
                       rel="noopener noreferrer"
                       title={`${c.name} on backpack.tf`}
-                      onClick={(e) => e.stopPropagation()}
                     >
                       bp.tf ↗
                     </a>

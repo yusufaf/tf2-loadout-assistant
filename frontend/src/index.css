@@ -300,9 +300,28 @@ button {
 .cell:hover {
   transform: translateY(-2px);
 }
-.cell:focus-visible {
+.cell:has(> .name > .cell-equip:focus-visible) {
   outline: var(--focus);
   outline-offset: 2px;
+}
+/* Equip is a real button stretched over the whole card, so the bp.tf link
+   can be its sibling instead of a link nested in a button (#26). */
+.cell-equip {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+}
+.cell-equip::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.cell-equip:focus-visible {
+  outline: none; /* the ring is drawn on .cell via :has, above */
 }
 .cell.selected {
   border-color: var(--gold-deep);
@@ -317,6 +336,7 @@ button {
   top: var(--s1);
   right: var(--s1);
   z-index: 1;
+  pointer-events: none; /* clicks fall through to the equip overlay */
   display: grid;
   place-items: center;
   width: 1.3rem;
@@ -376,6 +396,8 @@ button {
   font-style: italic;
 }
 .bptf {
+  position: relative;
+  z-index: 1; /* above the .cell-equip overlay */
   font-size: var(--t-xs);
   font-weight: 600;
   text-transform: uppercase;
