@@ -180,7 +180,7 @@ describe("describeWriteFailure", () => {
 
   it.each(["save", "import"] as const)("tells the player to wait before another %s", (action) => {
     const { text } = describeWriteFailure(new LoadoutWriteUnconfirmedError("x"), action);
-    expect(text).toMatch(/wait a few minutes/);
+    expect(text).toMatch(/wait a minute and reload/);
     expect(text).toMatch(/reload the page before/);
   });
 });
@@ -212,7 +212,7 @@ describe("copySummary", () => {
     expect(summary?.text).toContain("Copied 1 of 4");
     expect(summary?.text).toContain("1 couldn't be confirmed");
     expect(summary?.text).toContain("being re-read");
-    expect(summary?.text).toContain("wait a few minutes");
+    expect(summary?.text).toContain("wait a minute");
     expect(summary?.text).toContain("still saved in this browser");
     expect(summary?.text).not.toMatch(/try again/i);
   });

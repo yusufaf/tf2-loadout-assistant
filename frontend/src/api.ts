@@ -377,7 +377,9 @@ async function readWrittenRecord(res: Response): Promise<LoadoutRecord> {
  * request and response is one loadout (~340 B), the `/auth/me` / logout size class, and
  * the server does one or two DynamoDB calls, hence 10 s. Create also reads a 5xx as
  * unconfirmed: the app's 502 can follow a PutItem that landed, and a repeated POST makes
- * a second row. A rename or delete is safe to repeat, so any non-2xx there is plain. */
+ * a second row. A rename or delete is safe to repeat, so any non-2xx there is plain.
+ * The server ends each write within ~8 s of receiving it (loadouts.py's botocore bounds,
+ * checked against this constant by tests/test_loadouts.py). */
 export async function createLoadout(
   name: string,
   cls: string,

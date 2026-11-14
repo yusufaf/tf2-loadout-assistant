@@ -197,7 +197,7 @@ export function skippedText(
 
 /** Shared by the local and account import paths. On a partial failure it keeps the
  * duplicate and skipped counts, so the message never hides what happened to the rest.
- * `unconfirmed` creates got no complete answer and may land minutes later, and
+ * `unconfirmed` creates got no complete answer and may land after the re-read, and
  * `notTried` ones weren't sent after that; neither invites an immediate re-import, which
  * is how a late-landing create would become a duplicate. */
 export function importSummary(
@@ -228,9 +228,8 @@ export function importSummary(
       parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
     text =
       `Imported ${added} of ${added + failed + unconfirmed + notTried}; ${list} — ` +
-      "re-reading your list from your account. Some may take a few minutes to appear, so " +
-      "wait a few minutes and reload the page before importing the same file again; " +
-      "builds already saved are skipped.";
+      "re-reading your list from your account. If some are missing, wait a minute and " +
+      "reload the page before importing the same file again; builds already saved are skipped.";
     if (duplicates) text += ` ${duplicates} were already saved.`;
   }
   return skipped ? `${text} ${skipped}` : text;

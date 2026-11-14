@@ -315,6 +315,7 @@ describe("importSummary", () => {
     expect(text).toContain("1 couldn't be saved and 1 couldn't be confirmed");
     expect(text).toContain("re-reading your list");
     expect(text).toContain("reload the page before importing the same file again");
+    expect(text).toContain("wait a minute and reload");
     expect(text).toContain("1 were already saved");
     expect(text).not.toContain("import the same file again to retry");
 
