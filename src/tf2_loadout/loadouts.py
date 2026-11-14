@@ -156,7 +156,10 @@ class DynamoLoadoutStore:
             kwargs: dict[str, Any] = {
                 "KeyConditionExpression": (
                     Key("PK").eq(_pk(steam_id)) & Key("SK").begins_with(_SK_PREFIX)
-                )
+                ),
+                # The browser's re-read after a write it couldn't confirm, and _find_sk
+                # right after a create, must see that write.
+                "ConsistentRead": True,
             }
             items: list[dict] = []
             while True:

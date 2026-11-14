@@ -85,6 +85,25 @@ async def test_store_ops_build_the_table_on_the_worker_thread(store, monkeypatch
     assert threading.get_ident() not in seen
 
 
+async def test_list_reads_are_strongly_consistent(store, monkeypatch):
+    await store.create("s1", "A", "Spy", [1])
+    calls: list[dict] = []
+    real = store._table
+
+    class SpyTable:
+        def __init__(self, table):
+            self._table = table
+
+        def query(self, **kwargs):
+            calls.append(kwargs)
+            return self._table.query(**kwargs)
+
+    monkeypatch.setattr(store, "_table", lambda: SpyTable(real()))
+    assert len(await store.list("s1")) == 1
+    assert calls
+    assert all(kw.get("ConsistentRead") is True for kw in calls)
+
+
 async def test_dynamo_failure_raises_loadout_store_error():
     with mock_aws():
         s = DynamoLoadoutStore("missing", region=REGION)
