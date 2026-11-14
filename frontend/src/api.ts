@@ -484,6 +484,26 @@ export function formatPrice(p: Price): string {
   return p.value_high ? `${lo}–${+p.value_high.toFixed(2)} ${unit}` : `${lo} ${unit}`;
 }
 
+/** The tray's estimated value: every `ref_value` summed into one ref figure, plus a
+ * count of items it can't include (no price, or a hat/USD price with no ref rate). */
+export function formatLoadoutTotal(items: Cosmetic[]): string {
+  let sum = 0;
+  let known = 0;
+  for (const it of items) {
+    const ref = it.price?.ref_value;
+    if (ref == null) continue;
+    sum += ref;
+    known++;
+  }
+  const unknown = items.length - known;
+  const parts: string[] = [];
+  if (known > 0) {
+    parts.push(formatPrice({ currency: "metal", value: sum, value_high: null, ref_value: sum }));
+  }
+  if (unknown > 0) parts.push(`${unknown} unknown`);
+  return parts.join(" + ") || "—";
+}
+
 // backpack.tf overview page — quality-agnostic, keyed on item name.
 export function backpackUrl(name: string): string {
   return `https://backpack.tf/overview/${encodeURIComponent(name)}`;
