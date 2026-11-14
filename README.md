@@ -16,9 +16,9 @@ loadouts from a described style ("look like a cop").
   [`tf2-wiki-mcp`](https://github.com/yusufaf/tf2-wiki-mcp).
 - **Frontend:** React + Vite — a class browser and loadout tray with per-item cards
   (image, price, conflict badges), filters for class scope, sort order (including
-  price), a refined-metal budget cap, paint, styles and Halloween restrictions, local
-  saved loadouts with share links, a budget-aware advisor chat panel, and a manual
-  loadout.tf handoff link.
+  price), a refined-metal budget cap, paint, styles and Halloween restrictions, saved
+  loadouts (in the browser, or on your Steam account once signed in) with share links,
+  a budget-aware advisor chat panel, and a manual loadout.tf handoff link.
 
 3D model rendering is intentionally **out of scope for v1**.
 
@@ -38,8 +38,8 @@ that one turn, and nothing is stored or logged server-side. Clear it any time wi
 `/healthz` reports `"chat": true` whenever the service built; a turn without a key, or
 with one the provider rejects, is a `401` and the panel reopens the key form.
 
-Weaker models are the main quality risk here — small local models tend to recommend
-items they never looked up. The API re-resolves every suggested defindex against the
+Weaker models are the main quality risk here — they tend to recommend items they
+never looked up. The API re-resolves every suggested defindex against the
 catalog before returning it, so invented items are dropped rather than displayed.
 
 ## Running it
@@ -53,12 +53,15 @@ cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 ```
 
 The API serves `/cosmetics`, `/cosmetics/{defindex}`, `/cosmetics/lookup`, `/equip-conflicts`,
-`/lore/{defindex}`, `/loadout/conflicts`, `/chat`, and `/healthz`. Chat is stateless —
-the client sends the transcript back with each turn.
+`/lore/{defindex}`, `/loadout/conflicts`, `/chat`, `/chat/stream`, `/chat/providers`, and
+`/healthz`. Steam sign-in adds `/auth/steam/login`, `/auth/steam/return`, `/auth/me`,
+`/auth/logout`, `/me/inventory`, `/me/loadouts`, and `/me/loadouts/{loadout_id}`; each
+answers `503` while its service isn't configured. Chat is stateless — the client sends
+the transcript back with each turn.
 
-The catalog is served from `.cache/`, which is built by the live schema test. If the API
-exits with a `StaleCacheError`, the cache predates the current format: rebuild it with
-`STEAM_API_KEY` set and `uv run pytest --live`.
+The catalog and prices are served from `.cache/`, which the live schema and pricing tests
+build. If the API exits with a `StaleCacheError`, the cache predates the current format:
+rebuild it with `STEAM_API_KEY` and `BACKPACK_TF_API_KEY` set and `uv run pytest --live`.
 
 ## Tests
 
@@ -66,7 +69,7 @@ exits with a `StaleCacheError`, the cache predates the current format: rebuild i
 uv run pytest            # unit tests; never reaches a model or an external API
 uv run pytest --live     # also runs the tests that hit real APIs, and rebuilds .cache
 
-cd frontend && pnpm test # Vitest, covering the pure filter and conflict modules
+cd frontend && pnpm test # Vitest over the frontend's logic modules (no DOM or component tests)
 ```
 
 CI (`.github/workflows/ci.yml`) runs the default pytest suite plus the frontend's Vitest, oxlint and typecheck/build on every pull request and push to main; the `--live` tests never run there.

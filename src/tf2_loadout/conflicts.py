@@ -1,7 +1,8 @@
 """Equip-region conflict detection.
 
-Two cosmetics cannot be equipped together when they occupy the same equip region.
-Detection is a set-overlap test over each item's ``equip_regions``.
+Two cosmetics cannot be equipped together when any of their equip regions conflict:
+the same region, or two regions listed against each other in items_game's
+``equip_conflicts`` matrix (``whole_head`` vs ``hat``). Every pair of items is tested.
 """
 
 from __future__ import annotations

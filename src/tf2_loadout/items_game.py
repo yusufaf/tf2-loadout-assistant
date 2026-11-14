@@ -3,7 +3,8 @@
 Three things the schema's GetSchemaItems endpoint lacks:
 - per-item equip regions (often inherited through a ``prefab`` chain),
 - the ``equip_conflicts`` cross-region conflict matrix, and
-- filterable attributes (paintability, holiday restriction, style variants).
+- filterable attributes (paintability, holiday restriction; style variants come
+  from GetSchemaItems instead).
 """
 
 from __future__ import annotations
@@ -99,7 +100,7 @@ def resolve_item_attrs(items_game: dict) -> dict[int, ItemAttrs]:
     """Map each item's defindex to its resolved filterable attributes.
 
     Items whose attributes are all defaults are omitted, keeping the cache small -- most
-    of the schema is unpainted, unrestricted and style-less.
+    of the schema is unpainted and unrestricted.
     """
     prefabs = items_game.get("prefabs", {})
     result: dict[int, ItemAttrs] = {}

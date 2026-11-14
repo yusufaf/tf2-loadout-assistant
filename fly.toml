@@ -3,8 +3,8 @@
 # runtime write is a best-effort lore cache under .cache/lore, so there's
 # nothing to persist.
 #
-# `app` below is a placeholder. Fly app names are globally unique across all
-# Fly users — run `fly apps create tf2-loadout-af` (or your own name) and
+# `app` below is this deployment's Fly app. Fly app names are globally unique
+# across all Fly users, so a fork must run `fly apps create <its own name>` and
 # update `app` here to match before deploying.
 #
 # See https://fly.io/docs/reference/configuration/
@@ -30,8 +30,7 @@ primary_region = 'lax'
   # Saved loadouts (DynamoDB) are optional too: /healthz reports "loadouts": false
   # without DYNAMODB_TABLE_NAME. AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY are
   # boto3's own native var names, scoped to one table via a hand-created IAM user
-  # (see CLAUDE.md) -- not minted by CDK, so the secret never lands in
-  # CloudFormation state.
+  # -- not minted by CDK, so the secret never lands in CloudFormation state.
   #   fly secrets set --app tf2-loadout-af \
   #     DYNAMODB_TABLE_NAME=tf2-loadout-production-main AWS_REGION=us-west-2 \
   #     AWS_ACCESS_KEY_ID=<key> AWS_SECRET_ACCESS_KEY=<secret>

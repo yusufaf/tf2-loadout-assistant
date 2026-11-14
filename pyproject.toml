@@ -1,7 +1,7 @@
 [project]
 name = "tf2-loadout-assistant"
 version = "0.1.0"
-description = "Chat-driven assistant for TF2 cosmetic loadouts: style suggestions, equip-conflict detection, ratings, and pricing."
+description = "Chat-driven assistant for TF2 cosmetic loadouts: style suggestions, equip-conflict detection, and pricing."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
@@ -14,8 +14,8 @@ dependencies = [
     "uvicorn>=0.32.0",
     "httpx>=0.28.1",
     "pydantic>=2.9.0",
-    # Provider-agnostic LLM layer. Extras pick which provider SDKs come along;
-    # [openai] also covers Ollama and any OpenAI-compatible endpoint.
+    # Provider-agnostic LLM layer. Extras pick which provider SDKs come along: one
+    # per entry in config.PROVIDERS.
     "pydantic-ai-slim[anthropic,openai,openrouter]>=2.13.0",
     "python-dotenv>=1.0",
     # Signs the Starlette session cookie used for Steam sign-in.
