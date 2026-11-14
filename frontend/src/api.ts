@@ -126,15 +126,6 @@ export async function fetchConflicts(defindexes: number[]): Promise<Conflict[]> 
   return (await res.json()).conflicts;
 }
 
-/** A turn's worth of chat. `history` is opaque transcript state we hand straight back. */
-export interface ChatReply {
-  message: string;
-  suggested_defindexes: number[];
-  conflicts: Conflict[];
-  history: unknown[];
-  steam_id: string | null;
-}
-
 /** The API is up but the chat service failed to build, so the panel should stay hidden. */
 export class ChatUnavailableError extends Error {}
 
@@ -419,21 +410,6 @@ export async function deleteLoadout(id: string): Promise<void> {
  * (at most 27 characters for a real class name).
  */
 export const MAX_MESSAGE_CHARS = 1900;
-
-export async function sendChat(
-  message: string,
-  history: unknown[],
-  equipped: number[],
-  llm: LlmKey
-): Promise<ChatReply> {
-  const res = await fetch(`${BASE}/chat`, {
-    method: "POST",
-    headers: chatHeaders(llm),
-    body: JSON.stringify({ message, history, equipped }),
-  });
-  await throwForChatStatus(res);
-  return res.json();
-}
 
 /** One newline-delimited JSON line from /chat/stream. */
 export interface ChatStreamEvent {

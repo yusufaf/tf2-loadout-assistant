@@ -290,14 +290,6 @@ export function rename(id: string, name: string): SavedLoadout[] {
   return next;
 }
 
-export function update(id: string, cls: string, items: Cosmetic[]): SavedLoadout[] {
-  const next = loadAll().map((l) =>
-    l.id === id ? { ...l, cls, items, updatedAt: Date.now() } : l
-  );
-  saveAll(next);
-  return next;
-}
-
 export function remove(id: string): SavedLoadout[] {
   const next = loadAll().filter((l) => l.id !== id);
   saveAll(next);
