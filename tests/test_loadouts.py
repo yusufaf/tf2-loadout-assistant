@@ -46,6 +46,13 @@ def test_each_thread_gets_its_own_table(store):
     assert other[0] is not store._table()
 
 
+def test_table_client_has_bounded_timeouts_and_retries(store):
+    cfg = store._table().meta.client.meta.config
+    assert cfg.connect_timeout == 1
+    assert cfg.read_timeout == 1
+    assert cfg.retries == {"mode": "standard", "total_max_attempts": 2}
+
+
 async def test_store_ops_build_the_table_on_the_worker_thread(store, monkeypatch):
     seen: list[int] = []
     real = store._table

@@ -30,6 +30,7 @@ from typing import Any, Protocol, TypeVar
 import anyio
 import boto3
 from boto3.dynamodb.conditions import Key
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,19 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 _SK_PREFIX = "LOADOUT#"
+
+_CONNECT_TIMEOUT_S = 1
+_READ_TIMEOUT_S = 1
+_MAX_ATTEMPTS = 2
+# botocore standard mode: the retry after attempt n waits rand() * min(2 ** (n - 1), 20) s.
+_MAX_BACKOFF_S = sum(min(2 ** (n - 1), 20) for n in range(1, _MAX_ATTEMPTS))
+_CALL_WORST_CASE_S = _MAX_ATTEMPTS * (_CONNECT_TIMEOUT_S + _READ_TIMEOUT_S) + _MAX_BACKOFF_S
+_CLIENT_CONFIG = Config(
+    connect_timeout=_CONNECT_TIMEOUT_S,
+    read_timeout=_READ_TIMEOUT_S,
+    # total_max_attempts, not max_attempts: botocore reads max_attempts as retries, one more call.
+    retries={"mode": "standard", "total_max_attempts": _MAX_ATTEMPTS},
+)
 
 
 class LoadoutStoreError(Exception):
@@ -108,7 +122,9 @@ class DynamoLoadoutStore:
         table = getattr(self._local, "table", None)
         if table is None:
             with self._session_lock:
-                table = self._session.resource("dynamodb").Table(self._table_name)
+                table = self._session.resource("dynamodb", config=_CLIENT_CONFIG).Table(
+                    self._table_name
+                )
             self._local.table = table
         return table
 
