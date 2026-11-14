@@ -20,7 +20,14 @@ import {
   type Transcript,
 } from "./chatSession";
 import { clashingIds } from "./filters";
-import { clearLlmKey, loadLlmKey, saveLlmKey, type SavedLlmKey } from "./llmKey";
+import {
+  clearLlmKey,
+  keyRejectedMessage,
+  keyToggleCopy,
+  loadLlmKey,
+  saveLlmKey,
+  type SavedLlmKey,
+} from "./llmKey";
 
 /** What each tool is doing, in the player's terms rather than the function's. */
 const TOOL_LABELS: Record<string, string> = {
@@ -29,6 +36,8 @@ const TOOL_LABELS: Record<string, string> = {
   check_conflicts: "Making sure it all fits…",
   get_item_lore: "Reading up on it…",
 };
+
+type PanelError = string | { rejectedKey: string };
 
 interface Props {
   /** Who the page thinks is signed in. It picks which saved conversation to show at
@@ -71,7 +80,7 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
   // The final event has arrived, so the turn will be kept whatever happens: Stop is hidden.
   const [replied, setReplied] = useState(false);
   const [progress, setProgress] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<PanelError>("");
   const logRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -90,11 +99,11 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  // Fetched whenever the form is open and the list is still empty. A failure changes
-  // nothing the effect depends on, and with no key stored the form can't be closed and
-  // reopened, so a failed load shows a Retry that bumps `providersAttempt`.
+  // Fetched once at mount, form open or not: the header's key toggle names the provider
+  // too. A failure changes nothing the effect depends on, so the form's Retry, or
+  // opening the form after a failed load, bumps `providersAttempt`.
   useEffect(() => {
-    if (!showKeyForm || providers.length > 0) return;
+    if (providers.length > 0) return;
     let cancelled = false;
     setProvidersFailed(false);
     fetchChatProviders().then((list) => {
@@ -114,14 +123,13 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [showKeyForm, providers.length, providersAttempt]);
+  }, [providers.length, providersAttempt]);
 
   function retryProviders() {
+    setProvidersFailed(false);
     setProvidersAttempt((n) => n + 1);
   }
 
-  const providerLabel = (id: string) =>
-    providers.find((p) => p.id === id)?.label ?? id;
   const selected = providers.find((p) => p.id === draftProvider);
 
   // Every way into the form starts from the stored choice, so a checkbox change
@@ -129,6 +137,7 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
   function openKeyForm() {
     setDraftRemember(llmKey?.remember ?? true);
     setShowKeyForm(true);
+    if (providersFailed) retryProviders();
   }
 
   function saveKey(e: React.FormEvent) {
@@ -157,7 +166,7 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
   }
 
   function rejectKey(provider: string) {
-    setError(`${providerLabel(provider)} rejected that key. Check it and try again.`);
+    setError({ rejectedKey: provider });
     openKeyForm();
   }
 
@@ -271,6 +280,11 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
     }
   }
 
+  // The provider list may land after the 401, so the name is resolved each render.
+  const errorText =
+    typeof error === "string" ? error : keyRejectedMessage(error.rejectedKey, providers);
+  const toggle = llmKey ? keyToggleCopy(llmKey, providers) : null;
+
   return (
     <section className="chat">
       <div className="chat-head">
@@ -282,17 +296,15 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
             </button>
           )}
           {/* Not mid-turn: the key form replaces the message form, which holds Stop. */}
-          {llmKey && !busy && (
+          {toggle && !busy && (
             <button
               type="button"
               className="chat-key-toggle"
               onClick={() => (showKeyForm ? setShowKeyForm(false) : openKeyForm())}
               aria-expanded={showKeyForm}
-              title={`Using your ${providerLabel(llmKey.provider)} key${
-                llmKey.remember ? "" : " for this tab only"
-              }`}
+              title={toggle.title}
             >
-              {providerLabel(llmKey.provider)} key
+              {toggle.text}
             </button>
           )}
         </div>
@@ -349,7 +361,7 @@ export default function ChatPanel({ viewer, cls, loadout, onEquip }: Props) {
         {busy && (
           <p className="chat-status">{progress || "Thinking it over…"}</p>
         )}
-        {error && <p className="chat-status error">{error}</p>}
+        {errorText && <p className="chat-status error">{errorText}</p>}
         {keepsHiddenCopy(transcript) && (
           <p className="chat-status" role="status">
             This conversation won't be saved: an earlier one of yours is saved in this
