@@ -39,7 +39,8 @@ class Cosmetic:
     """A TF2 cosmetic item.
 
     ``equip_regions`` is the set of body regions the item occupies; two cosmetics
-    conflict when these sets overlap. Remaining fields are catalog metadata and are
+    conflict when these sets overlap or the conflict matrix pairs two of their
+    regions. Remaining fields are catalog metadata and are
     optional so the conflict engine can be exercised with minimal fixtures.
     """
 

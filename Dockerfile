@@ -11,8 +11,8 @@ COPY frontend/package.json frontend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY frontend/ ./
-# Empty base -> src/api.ts's fetches resolve against this app's own origin
-# instead of http://127.0.0.1:8000 (the dev default).
+# Empty base -> src/api.ts's fetches resolve against this app's own origin, the
+# same as api.ts's default when VITE_API_BASE is unset (dev uses the Vite proxy).
 ENV VITE_API_BASE=""
 RUN pnpm build
 

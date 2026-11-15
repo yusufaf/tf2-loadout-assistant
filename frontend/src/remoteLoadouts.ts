@@ -14,8 +14,8 @@ import { cleanName, contentKey, type SavedLoadout } from "./savedLoadouts";
 // The Steam-account-backed counterpart to savedLoadouts.ts's localStorage functions --
 // same shapes where the API allows it, so useSavedLoadouts.ts can pick between the two
 // with barely any branching. The one structural difference: the server only ever
-// stores defindexes, never full Cosmetic objects (CLAUDE.md's "the catalog is the
-// single source of truth" story extends here too), so freshly-fetched records are
+// stores defindexes, never full Cosmetic objects (the catalog stays the one source of
+// item data), so freshly-fetched records are
 // hydrated with one batched `lookupCosmetics` call (POST /cosmetics/lookup) before
 // they're SavedLoadouts the UI can render. A defindex the catalog no longer resolves is
 // counted per loadout as `unavailable` rather than dropped silently. `create`/`rename`

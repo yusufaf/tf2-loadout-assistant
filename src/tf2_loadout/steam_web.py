@@ -1,7 +1,8 @@
-"""Runtime Steam Web API client (profile lookups, later the TF2 backpack).
+"""Runtime Steam Web API client (profile lookups and the TF2 backpack).
 
 Distinct from ``schema_client.py``, which is a dev/live-test-only tool for
-rebuilding the on-disk catalog cache. This one is called on every sign-in.
+rebuilding the on-disk catalog cache. This one is called on every sign-in and
+backpack read.
 """
 
 from __future__ import annotations

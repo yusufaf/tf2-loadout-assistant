@@ -8,8 +8,8 @@ const SCOPES: { value: Scope; label: string; title: string }[] = [
   { value: "all", label: "All", title: "Wearable by all nine classes" },
 ];
 
-// Slider ceiling in refined metal. Not a hard catalog limit -- items above it just
-// require typing rather than dragging -- but 100 ref covers the overwhelming majority
+// Slider ceiling in refined metal. Not a hard catalog limit -- items above it only
+// show with the cap off ("Any price") -- but 100 ref covers the overwhelming majority
 // of tradable cosmetics, so it stays the useful end of the range.
 const MAX_BUDGET_REF = 100;
 const DEFAULT_BUDGET_REF = 20;
@@ -101,7 +101,7 @@ export default function FilterBar({
         <button
           type="button"
           className="filter-chip"
-          title="Cap the grid to items priced at or under this many refined metal. Unpriced items and keys convert automatically; a currency with no ref rate is excluded rather than guessed."
+          title="Cap the grid to items priced at or under this many refined metal. Keys convert automatically; unpriced items and a currency with no ref rate are excluded rather than guessed."
           aria-pressed={state.maxRef !== null}
           onClick={() =>
             onChange({
