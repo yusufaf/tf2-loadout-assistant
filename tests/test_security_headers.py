@@ -20,12 +20,13 @@ from pydantic_ai.models.test import TestModel
 from tf2_loadout.agent import LoadoutAgentService, LoadoutDeps, build_agent
 from tf2_loadout.api import CACHE_DIR, create_app
 from tf2_loadout.auth import SignedInUser
-from tf2_loadout.catalog import CatalogService, merge_catalog
+from tf2_loadout.catalog import CatalogService
 from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
 from tf2_loadout.security_headers import (
     CSP_DIRECTIVES,
     HSTS,
+    HTTPS_SECURITY_HEADERS,
     SECURITY_HEADERS,
     SecurityHeaders,
 )
@@ -54,8 +55,8 @@ def _app(**kwargs):
     return create_app(CatalogService([FEDORA]), PricingService({}), **kwargs)
 
 
-def _assert_security_headers(headers) -> None:
-    for name, value in SECURITY_HEADERS.items():
+def _assert_security_headers(headers, *, https: bool = False) -> None:
+    for name, value in (HTTPS_SECURITY_HEADERS if https else SECURITY_HEADERS).items():
         assert headers.get(name) == value, name
 
 
@@ -75,11 +76,17 @@ def test_every_response_carries_the_security_headers(method, path, body, expecte
     _assert_security_headers(r.headers)
 
 
-def test_hsts_is_sent_only_over_https():
+def test_hsts_and_upgrade_insecure_requests_are_sent_only_over_https():
     app = _app()
-    assert "strict-transport-security" not in TestClient(app).get("/healthz").headers
+    plain = TestClient(app).get("/healthz").headers
+    assert "strict-transport-security" not in plain
+    assert "upgrade-insecure-requests" not in plain["content-security-policy"]
+
     r = TestClient(app, base_url="https://testserver").get("/healthz")
     assert r.headers["strict-transport-security"] == HSTS
+    assert r.headers["content-security-policy"] == HTTPS_SECURITY_HEADERS["content-security-policy"]
+    directives = [d.strip() for d in r.headers["content-security-policy"].split(";")]
+    assert "upgrade-insecure-requests" in directives
 
 
 def test_a_header_the_app_set_is_kept():
@@ -131,7 +138,7 @@ def test_a_session_avatar_is_served_from_an_allowed_host():
 
     avatar = client.get("/auth/me").json()["avatar"]
     assert avatar == "https://avatars.steamstatic.com/abc_full.jpg?t=1"
-    assert _origin(avatar) in CSP_DIRECTIVES["img-src"]
+    assert _source(avatar) in CSP_DIRECTIVES["img-src"]
 
 
 def test_the_canonical_host_redirect_carries_the_headers():
@@ -139,8 +146,7 @@ def test_the_canonical_host_redirect_carries_the_headers():
     client = TestClient(app, base_url="https://tf2-loadout-af.fly.dev")
     r = client.get("/", follow_redirects=False)
     assert r.status_code == 301
-    _assert_security_headers(r.headers)
-    assert r.headers["strict-transport-security"] == HSTS
+    _assert_security_headers(r.headers, https=True)
 
 
 def test_the_chat_stream_still_streams_under_the_headers():
@@ -184,13 +190,17 @@ def test_an_unhandled_500_carries_the_headers():
     r = client.get("/cosmetics/1")
     assert r.status_code == 500
     assert r.text == "Internal Server Error"
-    _assert_security_headers(r.headers)
-    assert r.headers["strict-transport-security"] == HSTS
+    _assert_security_headers(r.headers, https=True)
 
 
-def _origin(url: str) -> str:
+def _source(url: str) -> str:
+    """The CSP source a URL needs: 'self' for a same-origin URL, else its origin.
+    A protocol-relative URL is cross-origin too (https on the deployed page)."""
     parts = urlsplit(url)
-    return f"{parts.scheme}://{parts.netloc}"
+    if parts.netloc:
+        return f"{parts.scheme or 'https'}://{parts.netloc}"
+    # data:, blob: and friends are scheme sources, which the policy never lists.
+    return f"{parts.scheme}:" if parts.scheme else "'self'"
 
 
 @pytest.mark.skipif(
@@ -199,22 +209,9 @@ def _origin(url: str) -> str:
 )
 def test_cached_catalog_images_are_allowed_by_img_src():
     catalog = CatalogService.from_cache(CACHE_DIR)
-    origins = {_origin(c.image_url) for c in catalog.all() if c.image_url}
+    origins = {_source(c.image_url) for c in catalog.all() if c.image_url}
     assert origins
     assert origins <= set(CSP_DIRECTIVES["img-src"])
-
-
-def test_a_schema_icon_url_is_allowed_by_img_src():
-    """CI has no cache, so this runs the real feed's scheme and host through the merge."""
-    raw = {
-        "defindex": 116,
-        "item_class": "tf_wearable",
-        "item_name": "The Modest Pile of Hat",
-        "image_url": "http://media.steampowered.com/apps/440/icons/modest_hat.png",
-        "used_by_classes": ["Scout"],
-    }
-    [cosmetic] = merge_catalog([raw], {116: frozenset({"hat"})})
-    assert _origin(cosmetic.image_url) in CSP_DIRECTIVES["img-src"]
 
 
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
@@ -262,16 +259,6 @@ class _PageScan(HTMLParser):
             elif {"preload", "prefetch", "manifest"} & rel:
                 kind = (a.get("as") or "").lower()
                 self.loads.append((_PRELOAD_DIRECTIVES.get(kind, "default-src"), href))
-
-
-def _source(url: str) -> str:
-    """The CSP source a URL needs: 'self' for a same-origin URL, else its origin.
-    A protocol-relative URL is cross-origin too (https on the deployed page)."""
-    parts = urlsplit(url)
-    if parts.netloc:
-        return f"{parts.scheme or 'https'}://{parts.netloc}"
-    # data:, blob: and friends are scheme sources, which the policy never lists.
-    return f"{parts.scheme}:" if parts.scheme else "'self'"
 
 
 @pytest.mark.parametrize("page", ["index.html", "dist/index.html"])

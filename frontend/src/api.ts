@@ -29,10 +29,10 @@ export interface Conflict {
   regions: string[];
 }
 
-// Empty string = same-origin: prod serves the built frontend from the API itself, and
-// the dev proxy (vite.config.ts) forwards API prefixes to :8000, so both cases share
-// one origin -- required for the Steam sign-in cookie (SameSite=Lax) to ride along.
-const BASE = import.meta.env.VITE_API_BASE ?? "";
+// Every request is a same-origin path: prod serves the built frontend from the API
+// itself, and the dev proxy (vite.config.ts) forwards the API prefixes to :8000. That
+// is required for the Steam sign-in cookie (SameSite=Lax) to ride along, and it is
+// all the CSP's connect-src 'self' allows.
 
 const COSMETICS_TIMEOUT_MS = 30_000;
 
@@ -47,7 +47,7 @@ export async function fetchCosmetics(usedBy: string, q: string): Promise<Cosmeti
   // would silently hide items the user has filtered down to.
   const params = new URLSearchParams({ used_by: usedBy, limit: "0" });
   if (q) params.set("q", q);
-  const res = await fetch(`${BASE}/cosmetics?${params}`, {
+  const res = await fetch(`/cosmetics?${params}`, {
     signal: AbortSignal.timeout(COSMETICS_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`cosmetics ${res.status}`);
@@ -56,7 +56,7 @@ export async function fetchCosmetics(usedBy: string, q: string): Promise<Cosmeti
 
 /** The cross-region conflict matrix. Static, so fetch it once and keep it. */
 export async function fetchConflictMatrix(): Promise<ConflictMatrix> {
-  const res = await fetch(`${BASE}/equip-conflicts`);
+  const res = await fetch("/equip-conflicts");
   if (!res.ok) throw new Error(`equip-conflicts ${res.status}`);
   return (await res.json()).matrix;
 }
@@ -69,7 +69,7 @@ const COSMETIC_ITEM_TIMEOUT_MS = 10_000;
  * measured ~0.4 KB, so it gets the probes' 10 s rather than the catalog's 30 s; a
  * reply's chips are fetched in parallel, so a reply waits at most about this long. */
 export async function fetchCosmetic(defindex: number): Promise<Cosmetic> {
-  const res = await fetch(`${BASE}/cosmetics/${defindex}`, {
+  const res = await fetch(`/cosmetics/${defindex}`, {
     signal: AbortSignal.timeout(COSMETIC_ITEM_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`cosmetic ${res.status}`);
@@ -99,7 +99,7 @@ export async function lookupCosmetics(
   }
   const results = await Promise.all(
     chunks.map(async (chunk) => {
-      const res = await fetch(`${BASE}/cosmetics/lookup`, {
+      const res = await fetch("/cosmetics/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ defindexes: chunk }),
@@ -117,7 +117,7 @@ export async function lookupCosmetics(
 
 export async function fetchConflicts(defindexes: number[]): Promise<Conflict[]> {
   if (defindexes.length < 2) return [];
-  const res = await fetch(`${BASE}/loadout/conflicts`, {
+  const res = await fetch("/loadout/conflicts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ defindexes }),
@@ -166,7 +166,7 @@ export interface ChatProvider {
  * `[]` on failure: the form still renders, the player just can't pick anything. */
 export async function fetchChatProviders(): Promise<ChatProvider[]> {
   try {
-    const res = await fetch(`${BASE}/chat/providers`);
+    const res = await fetch("/chat/providers");
     if (!res.ok) return [];
     return (await res.json()).providers ?? [];
   } catch {
@@ -204,7 +204,7 @@ async function throwForChatStatus(res: Response): Promise<void> {
 
 export async function fetchChatAvailable(): Promise<boolean> {
   try {
-    const res = await fetch(`${BASE}/healthz`);
+    const res = await fetch("/healthz");
     if (!res.ok) return false;
     return Boolean((await res.json()).chat);
   } catch {
@@ -229,7 +229,7 @@ const AUTH_ME_TIMEOUT_MS = 10_000;
 export async function fetchMe(): Promise<Me | null> {
   let res: Response;
   try {
-    res = await fetch(`${BASE}/auth/me`, { signal: AbortSignal.timeout(AUTH_ME_TIMEOUT_MS) });
+    res = await fetch("/auth/me", { signal: AbortSignal.timeout(AUTH_ME_TIMEOUT_MS) });
   } catch {
     return null;
   }
@@ -248,7 +248,7 @@ export async function fetchMe(): Promise<Me | null> {
 }
 
 export function steamLoginUrl(): string {
-  return `${BASE}/auth/steam/login`;
+  return "/auth/steam/login";
 }
 
 const SIGN_OUT_TIMEOUT_MS = 10_000;
@@ -258,7 +258,7 @@ const SIGN_OUT_TIMEOUT_MS = 10_000;
  * caller must not show the player as signed out. The bound is what lets a hung logout
  * end in the caller's failure path instead of leaving sign-out stuck. */
 export async function signOut(): Promise<void> {
-  const res = await fetch(`${BASE}/auth/logout`, {
+  const res = await fetch("/auth/logout", {
     method: "POST",
     signal: AbortSignal.timeout(SIGN_OUT_TIMEOUT_MS),
   });
@@ -279,7 +279,7 @@ export interface Inventory {
 export async function fetchInventory(refresh = false): Promise<Inventory | null> {
   try {
     const params = refresh ? "?refresh=1" : "";
-    const res = await fetch(`${BASE}/me/inventory${params}`);
+    const res = await fetch(`/me/inventory${params}`);
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -312,7 +312,7 @@ const LOADOUTS_TIMEOUT_MS = 30_000;
 export async function fetchLoadouts(): Promise<LoadoutRecord[] | null> {
   let res: Response;
   try {
-    res = await fetch(`${BASE}/me/loadouts`, {
+    res = await fetch("/me/loadouts", {
       signal: AbortSignal.timeout(LOADOUTS_TIMEOUT_MS),
     });
   } catch {
@@ -346,7 +346,7 @@ export class LoadoutWriteUnconfirmedError extends Error {}
 
 async function sendLoadoutWrite(path: string, init: RequestInit): Promise<Response> {
   try {
-    return await fetch(`${BASE}${path}`, {
+    return await fetch(path, {
       ...init,
       signal: AbortSignal.timeout(LOADOUT_WRITE_TIMEOUT_MS),
     });
@@ -443,7 +443,7 @@ export async function streamChat(
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
-  const res = await fetch(`${BASE}/chat/stream`, {
+  const res = await fetch("/chat/stream", {
     method: "POST",
     headers: chatHeaders(llm),
     body: JSON.stringify({ message, history, equipped }),

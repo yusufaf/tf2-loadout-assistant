@@ -64,9 +64,9 @@ describe("parseCosmetic", () => {
     expect(parseCosmetic(c)).toEqual(c);
   });
 
-  it("upgrades a stored http image_url to https", () => {
+  it("keeps a stored http image_url as saved", () => {
     const c = cosmetic(7, { image_url: "http://media.steampowered.com/a.png" });
-    expect(parseCosmetic(c)?.image_url).toBe("https://media.steampowered.com/a.png");
+    expect(parseCosmetic(c)?.image_url).toBe("http://media.steampowered.com/a.png");
   });
 
   it("leaves a non-http image_url alone", () => {

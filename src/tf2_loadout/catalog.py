@@ -48,9 +48,10 @@ def _equip_regions(raw: dict) -> frozenset[str]:
 
 def _https(url: str | None) -> str | None:
     # The schema hands out http:// icon URLs. Steam serves the same files over https,
-    # and the CSP's img-src is https-only.
-    if url and url.startswith("http://"):
-        return "https://" + url[len("http://"):]
+    # and the CSP's img-src is https-only. This is what keeps icons loading on the
+    # plain-http build, where the CSP sends no upgrade-insecure-requests.
+    if url and url[:7].lower() == "http://":
+        return "https://" + url[7:]
     return url
 
 
