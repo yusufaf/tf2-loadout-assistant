@@ -4,6 +4,9 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // The CSP's img-src/font-src allow no data:, so an inlined small icon or font would
+  // work under the dev server (no CSP) and break in prod.
+  build: { assetsInlineLimit: 0 },
   server: {
     // Same-origin in dev, matching prod (where the API serves the built frontend
     // itself): the Steam sign-in session cookie is SameSite=Lax, which a cross-site
