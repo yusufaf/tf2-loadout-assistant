@@ -255,7 +255,7 @@ describe("parseTranscript", () => {
     });
   });
 
-  it("upgrades http suggestion images to https", () => {
+  it("keeps a stored http suggestion image_url as saved", () => {
     const insecure: Transcript = {
       turns: [
         { role: "user", text: "q" },
@@ -265,7 +265,7 @@ describe("parseTranscript", () => {
       owner: null,
     };
     const raw = serializeTranscript(insecure);
-    expect(parseTranscript(raw, A).turns[1].suggestions?.[0].image_url).toBe("https://x/y.png");
+    expect(parseTranscript(raw, A).turns[1].suggestions?.[0].image_url).toBe("http://x/y.png");
   });
 });
 
