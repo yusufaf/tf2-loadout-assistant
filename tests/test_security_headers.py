@@ -20,7 +20,7 @@ from pydantic_ai.models.test import TestModel
 from tf2_loadout.agent import LoadoutAgentService, LoadoutDeps, build_agent
 from tf2_loadout.api import CACHE_DIR, create_app
 from tf2_loadout.auth import SignedInUser
-from tf2_loadout.catalog import CatalogService, merge_catalog
+from tf2_loadout.catalog import CatalogService
 from tf2_loadout.models import Cosmetic
 from tf2_loadout.pricing import PricingService
 from tf2_loadout.security_headers import (
@@ -138,7 +138,7 @@ def test_a_session_avatar_is_served_from_an_allowed_host():
 
     avatar = client.get("/auth/me").json()["avatar"]
     assert avatar == "https://avatars.steamstatic.com/abc_full.jpg?t=1"
-    assert _origin(avatar) in CSP_DIRECTIVES["img-src"]
+    assert _source(avatar) in CSP_DIRECTIVES["img-src"]
 
 
 def test_the_canonical_host_redirect_carries_the_headers():
@@ -193,9 +193,14 @@ def test_an_unhandled_500_carries_the_headers():
     _assert_security_headers(r.headers, https=True)
 
 
-def _origin(url: str) -> str:
+def _source(url: str) -> str:
+    """The CSP source a URL needs: 'self' for a same-origin URL, else its origin.
+    A protocol-relative URL is cross-origin too (https on the deployed page)."""
     parts = urlsplit(url)
-    return f"{parts.scheme}://{parts.netloc}"
+    if parts.netloc:
+        return f"{parts.scheme or 'https'}://{parts.netloc}"
+    # data:, blob: and friends are scheme sources, which the policy never lists.
+    return f"{parts.scheme}:" if parts.scheme else "'self'"
 
 
 @pytest.mark.skipif(
@@ -204,22 +209,9 @@ def _origin(url: str) -> str:
 )
 def test_cached_catalog_images_are_allowed_by_img_src():
     catalog = CatalogService.from_cache(CACHE_DIR)
-    origins = {_origin(c.image_url) for c in catalog.all() if c.image_url}
+    origins = {_source(c.image_url) for c in catalog.all() if c.image_url}
     assert origins
     assert origins <= set(CSP_DIRECTIVES["img-src"])
-
-
-def test_a_schema_icon_url_is_allowed_by_img_src():
-    """CI has no cache, so this runs the real feed's scheme and host through the merge."""
-    raw = {
-        "defindex": 116,
-        "item_class": "tf_wearable",
-        "item_name": "The Modest Pile of Hat",
-        "image_url": "http://media.steampowered.com/apps/440/icons/modest_hat.png",
-        "used_by_classes": ["Scout"],
-    }
-    [cosmetic] = merge_catalog([raw], {116: frozenset({"hat"})})
-    assert _origin(cosmetic.image_url) in CSP_DIRECTIVES["img-src"]
 
 
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
@@ -267,16 +259,6 @@ class _PageScan(HTMLParser):
             elif {"preload", "prefetch", "manifest"} & rel:
                 kind = (a.get("as") or "").lower()
                 self.loads.append((_PRELOAD_DIRECTIVES.get(kind, "default-src"), href))
-
-
-def _source(url: str) -> str:
-    """The CSP source a URL needs: 'self' for a same-origin URL, else its origin.
-    A protocol-relative URL is cross-origin too (https on the deployed page)."""
-    parts = urlsplit(url)
-    if parts.netloc:
-        return f"{parts.scheme or 'https'}://{parts.netloc}"
-    # data:, blob: and friends are scheme sources, which the policy never lists.
-    return f"{parts.scheme}:" if parts.scheme else "'self'"
 
 
 @pytest.mark.parametrize("page", ["index.html", "dist/index.html"])

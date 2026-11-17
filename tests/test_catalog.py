@@ -5,8 +5,13 @@ item. We keep only cosmetics (items that occupy an equip region) and map each in
 ``Cosmetic``.
 """
 
+from urllib.parse import urlsplit
+
+import pytest
+
 from tf2_loadout.catalog import ALL_CLASSES, merge_catalog, parse_schema_items
 from tf2_loadout.models import ItemAttrs
+from tf2_loadout.security_headers import CSP_DIRECTIVES
 
 
 HAT = {
@@ -248,10 +253,19 @@ def test_merge_keeps_medal_region_badges():
     assert cosmetic.used_by_classes == ALL_CLASSES
 
 
-def test_merge_upgrades_image_urls_to_https():
-    [cosmetic] = merge_catalog([SCHEMA_HAT], {116: frozenset({"hat"})})
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://media.steampowered.com/apps/440/icons/modest_hat.png",
+        "HTTP://media.steampowered.com/apps/440/icons/modest_hat.png",
+    ],
+)
+def test_merge_upgrades_image_urls_to_https(url):
+    [cosmetic] = merge_catalog([{**SCHEMA_HAT, "image_url": url}], {116: frozenset({"hat"})})
 
-    assert cosmetic.image_url == "https://media/hat.png"
+    assert cosmetic.image_url == "https://media.steampowered.com/apps/440/icons/modest_hat.png"
+    parts = urlsplit(cosmetic.image_url)
+    assert f"{parts.scheme}://{parts.netloc}" in CSP_DIRECTIVES["img-src"]
 
 
 def test_merge_keeps_a_missing_image_url_none():
