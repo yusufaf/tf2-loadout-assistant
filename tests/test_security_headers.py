@@ -26,6 +26,7 @@ from tf2_loadout.pricing import PricingService
 from tf2_loadout.security_headers import (
     CSP_DIRECTIVES,
     HSTS,
+    HTTPS_SECURITY_HEADERS,
     SECURITY_HEADERS,
     SecurityHeaders,
 )
@@ -54,8 +55,8 @@ def _app(**kwargs):
     return create_app(CatalogService([FEDORA]), PricingService({}), **kwargs)
 
 
-def _assert_security_headers(headers) -> None:
-    for name, value in SECURITY_HEADERS.items():
+def _assert_security_headers(headers, *, https: bool = False) -> None:
+    for name, value in (HTTPS_SECURITY_HEADERS if https else SECURITY_HEADERS).items():
         assert headers.get(name) == value, name
 
 
@@ -75,11 +76,17 @@ def test_every_response_carries_the_security_headers(method, path, body, expecte
     _assert_security_headers(r.headers)
 
 
-def test_hsts_is_sent_only_over_https():
+def test_hsts_and_upgrade_insecure_requests_are_sent_only_over_https():
     app = _app()
-    assert "strict-transport-security" not in TestClient(app).get("/healthz").headers
+    plain = TestClient(app).get("/healthz").headers
+    assert "strict-transport-security" not in plain
+    assert "upgrade-insecure-requests" not in plain["content-security-policy"]
+
     r = TestClient(app, base_url="https://testserver").get("/healthz")
     assert r.headers["strict-transport-security"] == HSTS
+    assert r.headers["content-security-policy"] == HTTPS_SECURITY_HEADERS["content-security-policy"]
+    directives = [d.strip() for d in r.headers["content-security-policy"].split(";")]
+    assert "upgrade-insecure-requests" in directives
 
 
 def test_a_header_the_app_set_is_kept():
@@ -139,8 +146,7 @@ def test_the_canonical_host_redirect_carries_the_headers():
     client = TestClient(app, base_url="https://tf2-loadout-af.fly.dev")
     r = client.get("/", follow_redirects=False)
     assert r.status_code == 301
-    _assert_security_headers(r.headers)
-    assert r.headers["strict-transport-security"] == HSTS
+    _assert_security_headers(r.headers, https=True)
 
 
 def test_the_chat_stream_still_streams_under_the_headers():
@@ -184,8 +190,7 @@ def test_an_unhandled_500_carries_the_headers():
     r = client.get("/cosmetics/1")
     assert r.status_code == 500
     assert r.text == "Internal Server Error"
-    _assert_security_headers(r.headers)
-    assert r.headers["strict-transport-security"] == HSTS
+    _assert_security_headers(r.headers, https=True)
 
 
 def _origin(url: str) -> str:

@@ -10,7 +10,10 @@ Google Fonts need.
 Plain ASGI rather than ``BaseHTTPMiddleware`` so the /chat/stream body isn't routed
 through it, same as ``CanonicalHostRedirect``. HSTS goes out only when the request
 arrived over https: browsers ignore it on plain http (RFC 6797), and local dev is
-plain http. Headers are added with ``setdefault``, so a route that needs a different
+plain http. So does the policy's ``upgrade-insecure-requests``: on plain-http local
+dev it would also upgrade the page's own same-origin assets to an https port nothing
+serves. Over https it upgrades every http subresource before the CSP check, which is
+what lets loadouts saved before the CSP keep their http icon URLs. Headers are added with ``setdefault``, so a route that needs a different
 value can still set its own.
 """
 
@@ -55,6 +58,14 @@ SECURITY_HEADERS: dict[str, str] = {
     "referrer-policy": "strict-origin-when-cross-origin",
 }
 
+UPGRADE_INSECURE_REQUESTS = "upgrade-insecure-requests"
+
+HTTPS_SECURITY_HEADERS: dict[str, str] = {
+    **SECURITY_HEADERS,
+    "content-security-policy": f"{CONTENT_SECURITY_POLICY}; {UPGRADE_INSECURE_REQUESTS}",
+    "strict-transport-security": HSTS,
+}
+
 
 class SecurityHeaders:
     def __init__(self, app: ASGIApp) -> None:
@@ -71,10 +82,8 @@ class SecurityHeaders:
                 # headers is optional on this message in the ASGI spec.
                 message.setdefault("headers", [])
                 headers = MutableHeaders(scope=message)
-                for name, value in SECURITY_HEADERS.items():
+                for name, value in (HTTPS_SECURITY_HEADERS if https else SECURITY_HEADERS).items():
                     headers.setdefault(name, value)
-                if https:
-                    headers.setdefault("strict-transport-security", HSTS)
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
