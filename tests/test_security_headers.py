@@ -368,12 +368,12 @@ def test_built_stylesheets_self_host_the_fonts():
     refs = [ref for path in _built_css() for ref in _css_refs(path.read_text(encoding="utf-8"))]
     for ref in refs:
         assert _source(ref) == "'self'", ref
-    assert any(ref.endswith(".woff2") for ref in refs)
+    assert any(ref.endswith(".woff2") for ref in refs), "no fonts in dist: rebuild the frontend"
 
 
 def test_built_font_faces_are_the_design_weights_with_swap():
     faces = [f for path in _built_css() for f in _font_faces(path.read_text(encoding="utf-8"))]
-    assert faces
+    assert faces, "no @font-face in dist: rebuild the frontend"
     assert all(f.get("font-display") == "swap" for f in faces)
     # DESIGN.md's Typography weights: importing another one means updating DESIGN.md too.
     assert {(f["font-family"], f["font-weight"]) for f in faces} == {
