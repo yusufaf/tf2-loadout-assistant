@@ -4,8 +4,8 @@ Each player's LLM key sits in ``localStorage`` on a page that also loads a
 third-party script (Umami). The CSP is what stops an injected script, or a script
 pulled in from a host nobody allowlisted, from running there and reading the key, so
 the policy allows no ``'unsafe-inline'``, no ``'unsafe-eval'`` and no wildcards:
-only the exact hosts the built page, Umami's beacon, Steam's icon and avatar CDNs and
-Google Fonts need.
+only the exact hosts the built page, Umami's beacon and Steam's icon and avatar CDNs
+need.
 
 Plain ASGI rather than ``BaseHTTPMiddleware`` so the /chat/stream body isn't routed
 through it, same as ``CanonicalHostRedirect``. HSTS goes out only when the request
@@ -27,8 +27,8 @@ ANALYTICS_ORIGIN = "https://analytics.yusufaf.dev"
 CSP_DIRECTIVES: dict[str, tuple[str, ...]] = {
     "default-src": ("'self'",),
     "script-src": ("'self'", ANALYTICS_ORIGIN),
-    "style-src": ("'self'", "https://fonts.googleapis.com"),
-    "font-src": ("'self'", "https://fonts.gstatic.com"),
+    "style-src": ("'self'",),
+    "font-src": ("'self'",),
     "img-src": (
         "'self'",
         # Item icons from the schema feed.

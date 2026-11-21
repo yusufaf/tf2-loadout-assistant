@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import mimetypes
 import os
 import secrets
 from collections.abc import Sequence
@@ -78,6 +79,10 @@ logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path(__file__).resolve().parents[2] / ".cache"
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+# Python's mimetypes table has no font types, so without these StaticFiles would
+# serve the self-hosted fonts as whatever the host's mime.types says, or octet-stream.
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("font/woff", ".woff")
 
 # The player's own LLM credential rides each chat request in headers rather than the
 # body or the session: the body is the transcript (which the client stores and sends
