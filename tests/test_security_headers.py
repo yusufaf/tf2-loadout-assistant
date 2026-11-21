@@ -2,13 +2,14 @@
 
 Covers that every kind of response carries the headers (routes, errors, unhandled
 500s, redirects, the chat stream), that HSTS needs https, and that the policy stays
-strict. The index.html and catalog tests check the other side: that the page and
-the item icons only reach hosts the policy allows.
+strict. The index.html, stylesheet and catalog tests check the other side: that the
+page, its CSS and the item icons only reach hosts the policy allows.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -182,6 +183,11 @@ def test_the_policy_never_allows_inline_eval_or_wildcards():
     assert CSP_DIRECTIVES["base-uri"] == ("'none'",)
 
 
+def test_fonts_and_stylesheets_come_only_from_self():
+    assert CSP_DIRECTIVES["style-src"] == ("'self'",)
+    assert CSP_DIRECTIVES["font-src"] == ("'self'",)
+
+
 def test_an_unhandled_500_carries_the_headers():
     """ServerErrorMiddleware sits outside everything add_middleware registers, so
     this only holds because create_app wraps the whole built stack."""
@@ -295,4 +301,95 @@ def test_the_page_scan_catches_what_the_policy_would_block():
     ]
     assert _source("data:image/png;base64,AAAA") == "data:"
     assert _source("//cdn.example.com/x.js") == "https://cdn.example.com"
-    assert _source("https://fonts.gstatic.com/x.woff2") in CSP_DIRECTIVES["font-src"]
+    assert _source("https://fonts.gstatic.com/x.woff2") not in CSP_DIRECTIVES["font-src"]
+
+
+_CSS_URL = re.compile(r"""url\(\s*['"]?([^'")\s]+)""")
+_CSS_IMPORT = re.compile(r"""@import\s+['"]([^'"]+)['"]""")
+_FONT_FACE = re.compile(r"@font-face\s*\{([^}]*)\}")
+
+
+def _css_refs(text: str) -> list[str]:
+    """Every url(...) target, then every quoted @import target, in a stylesheet."""
+    return _CSS_URL.findall(text) + _CSS_IMPORT.findall(text)
+
+
+def _font_faces(text: str) -> list[dict[str, str]]:
+    """The declarations of each @font-face, tolerant of minified and pretty CSS."""
+    faces = []
+    for match in _FONT_FACE.finditer(text):
+        face = {}
+        for declaration in match.group(1).split(";"):
+            if not declaration.strip():
+                continue
+            prop, _, value = declaration.partition(":")
+            face[prop.strip().lower()] = value.strip()
+        if "font-family" in face:
+            face["font-family"] = face["font-family"].strip("'\"")
+        # A minifier may write either keyword for the numeric weight.
+        weight = face.get("font-weight")
+        face["font-weight"] = {"normal": "400", "bold": "700"}.get(weight, weight)
+        faces.append(face)
+    return faces
+
+
+def _built_css() -> list[Path]:
+    css = sorted((FRONTEND / "dist" / "assets").glob("*.css"))
+    if not css:
+        pytest.skip("dist not built")
+    return css
+
+
+def test_the_css_scan_finds_urls_and_imports():
+    css = (
+        '@import "https://x.example/a.css";'
+        "a{src:url(/assets/a.woff2) format(\"woff2\"),url('./b.woff')}"
+    )
+    assert _css_refs(css) == ["/assets/a.woff2", "./b.woff", "https://x.example/a.css"]
+
+
+def test_the_font_face_scan_reads_family_weight_and_display():
+    css = (
+        "@font-face{font-family:Oswald;font-weight:bold;font-display:swap;src:url(/a.woff2)}"
+        "@font-face {\n  font-family: 'Inter';\n  font-weight: 400;\n}"
+    )
+    assert [
+        (f["font-family"], f["font-weight"], f.get("font-display")) for f in _font_faces(css)
+    ] == [("Oswald", "700", "swap"), ("Inter", "400", None)]
+
+
+def test_source_stylesheets_load_only_same_origin():
+    for path in FRONTEND.glob("src/**/*.css"):
+        for ref in _css_refs(path.read_text(encoding="utf-8")):
+            assert _source(ref) == "'self'", (path.name, ref)
+
+
+def test_built_stylesheets_self_host_the_fonts():
+    refs = [ref for path in _built_css() for ref in _css_refs(path.read_text(encoding="utf-8"))]
+    for ref in refs:
+        assert _source(ref) == "'self'", ref
+    assert any(ref.endswith(".woff2") for ref in refs), "no fonts in dist: rebuild the frontend"
+
+
+def test_built_font_faces_are_the_design_weights_with_swap():
+    faces = [f for path in _built_css() for f in _font_faces(path.read_text(encoding="utf-8"))]
+    assert faces, "no @font-face in dist: rebuild the frontend"
+    assert all(f.get("font-display") == "swap" for f in faces)
+    # DESIGN.md's Typography weights: importing another one means updating DESIGN.md too.
+    assert {(f["font-family"], f["font-weight"]) for f in faces} == {
+        ("Oswald", "500"),
+        ("Oswald", "600"),
+        ("Oswald", "700"),
+        ("Inter", "400"),
+        ("Inter", "500"),
+        ("Inter", "600"),
+    }
+
+
+def test_built_fonts_are_served_with_a_font_type():
+    fonts = sorted((FRONTEND / "dist" / "assets").glob("*.woff2"))
+    if not fonts:
+        pytest.skip("dist not built")
+    r = TestClient(_app()).get(f"/assets/{fonts[0].name}")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "font/woff2"

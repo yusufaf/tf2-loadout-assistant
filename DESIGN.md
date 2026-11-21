@@ -109,7 +109,7 @@ The app's tokens are deliberately not a 1:1 lift: `--paper` (`#e8dcc0`) reads wa
 
 ## Typography
 
-Two families, loaded from Google Fonts in `index.html` (no self-hosting, no `@font-face`). Both Google Fonts hosts are allowlisted in the CSP (`src/tf2_loadout/security_headers.py`); a font from anywhere else would be blocked:
+Two families, self-hosted from the `@fontsource/oswald` and `@fontsource/inter` npm packages: `main.tsx` imports one CSS file per weight, and Vite emits the woff2/woff files as hashed same-origin assets. Every face uses `font-display: swap`. The CSP's `font-src` and `style-src` are `'self'` only (`src/tf2_loadout/security_headers.py`), so a font or stylesheet from any other host is blocked. To add a weight, import `@fontsource/<family>/<weight>.css`; never add a `<link>` to a font CDN:
 
 - **`--font-display`: Oswald** (500/600/700) — a condensed grotesque standing in for TF2's proprietary "TF2 Build" headline face. **TF2 Build and TF2 Secondary are Valve-licensed fonts and cannot be shipped in this app.** Do not hotlink or embed them; Oswald is the permanent substitute, not a placeholder.
 - **`--font-body`: Inter** (400/500/600) — all body copy, form inputs.
@@ -128,7 +128,7 @@ Scale — use these seven sizes, nothing in between:
 | `xl` | 1.15 | totals sum |
 | `display` | `clamp(1.6rem, 4vw, 2.6rem)` | masthead h1 only |
 
-Constraint to hold, not repeat: Inter only loads 400/500/600, so nothing on `--font-body` should request `font-weight: 700` — the browser fakes it (synthesized bold), which reads slightly blurred/misaligned. `.filter-clear` was dropped to 600 for this reason; `.equipped-tick` was switched to `--font-display` instead, since it wanted a real bold and Oswald loads 700. Follow the same pattern for new Inter-based elements: cap at 600, or switch to display type if 700 is genuinely needed.
+Constraint to hold, not repeat: Inter only imports 400/500/600, so nothing on `--font-body` should request `font-weight: 700` — the browser fakes it (synthesized bold), which reads slightly blurred/misaligned. `.filter-clear` was dropped to 600 for this reason; `.equipped-tick` was switched to `--font-display` instead, since it wanted a real bold and Oswald loads 700. Follow the same pattern for new Inter-based elements: cap at 600, or switch to display type if 700 is genuinely needed.
 
 ## Spacing & layout
 
