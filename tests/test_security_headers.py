@@ -182,6 +182,11 @@ def test_the_policy_never_allows_inline_eval_or_wildcards():
     assert CSP_DIRECTIVES["base-uri"] == ("'none'",)
 
 
+def test_fonts_and_stylesheets_come_only_from_self():
+    assert CSP_DIRECTIVES["style-src"] == ("'self'",)
+    assert CSP_DIRECTIVES["font-src"] == ("'self'",)
+
+
 def test_an_unhandled_500_carries_the_headers():
     """ServerErrorMiddleware sits outside everything add_middleware registers, so
     this only holds because create_app wraps the whole built stack."""
@@ -295,4 +300,4 @@ def test_the_page_scan_catches_what_the_policy_would_block():
     ]
     assert _source("data:image/png;base64,AAAA") == "data:"
     assert _source("//cdn.example.com/x.js") == "https://cdn.example.com"
-    assert _source("https://fonts.gstatic.com/x.woff2") in CSP_DIRECTIVES["font-src"]
+    assert _source("https://fonts.gstatic.com/x.woff2") not in CSP_DIRECTIVES["font-src"]
