@@ -76,7 +76,7 @@ def _client(public_base_url: str | None = None) -> TestClient:
             Cosmetic(3, "Scout Cap", frozenset({"hat"}), ("Scout",), "misc", "img3"),
         ]
     )
-    pricing = PricingService({1: Price("metal", 5.0, 6.0)})
+    pricing = PricingService({1: Price("metal", 5.0, 6.0, last_update=1_700_000_000)})
     lore = LoreService(_StubWiki())
     return TestClient(create_app(catalog, pricing, lore, public_base_url=public_base_url))
 
@@ -100,8 +100,13 @@ def test_cosmetics_filtered_by_class_join_prices():
         "value": 5.0,
         "value_high": 6.0,
         "ref_value": 5.0,
+        "last_update": 1_700_000_000,
     }
     assert items[2]["price"] is None  # no price known
+
+
+def test_cosmetics_reports_prices_as_of():
+    assert _client().get("/cosmetics").json()["prices_as_of"] == 1_700_000_000
 
 
 def test_get_single_cosmetic_and_404():

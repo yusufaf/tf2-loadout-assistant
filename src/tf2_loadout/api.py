@@ -204,6 +204,8 @@ class PriceOut(BaseModel):
     # re-implementing the keys exchange rate; None when the currency (hat, usd) has no
     # ref equivalent.
     ref_value: float | None = None
+    # backpack.tf's "this price last changed" time, unix seconds.
+    last_update: int | None = None
 
 
 class CosmeticOut(BaseModel):
@@ -438,6 +440,9 @@ def create_app(
     if canonical_origin and canonical.hostname not in REDIRECTED_HOSTS:
         app.add_middleware(CanonicalHostRedirect, canonical_origin=canonical_origin)
 
+    # Pricing is fixed for the app's life, so this is computed once.
+    prices_as_of = pricing.as_of()
+
     def to_out(cosmetic: Cosmetic) -> CosmeticOut:
         price = pricing.get(cosmetic.defindex)
         return CosmeticOut(
@@ -582,7 +587,7 @@ def create_app(
             items = [c for c in items if needle in c.name.lower()]
         if limit > 0:
             items = items[:limit]
-        return {"items": [to_out(c) for c in items]}
+        return {"items": [to_out(c) for c in items], "prices_as_of": prices_as_of}
 
     @app.get("/equip-conflicts")
     def equip_conflicts() -> dict:
