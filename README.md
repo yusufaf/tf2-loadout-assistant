@@ -8,8 +8,8 @@ whole loadout costs.
 ![A Spy loadout on the bench: five cosmetics in the tray, an INCOMPATIBLE stamp on the two hats, and the estimated value of the whole loadout](docs/screenshot.png)
 
 A bench for Team Fortress 2 cosmetic loadouts: browse a class's cosmetics, try them on,
-and get equip-conflict detection and live pricing. An optional LLM advisor suggests
-loadouts from a described style ("look like a cop").
+and get equip-conflict detection and backpack.tf price estimates. An optional LLM
+advisor suggests loadouts from a described style ("look like a cop").
 
 - **Backend:** Python / FastAPI — a TF2 cosmetic catalog (Valve item schema), an
   equip-region conflict engine, backpack.tf pricing, and item lore reused from
@@ -57,7 +57,9 @@ The API serves `/cosmetics`, `/cosmetics/{defindex}`, `/cosmetics/lookup`, `/equ
 `/healthz`. Steam sign-in adds `/auth/steam/login`, `/auth/steam/return`, `/auth/me`,
 `/auth/logout`, `/me/inventory`, `/me/loadouts`, and `/me/loadouts/{loadout_id}`; each
 answers `503` while its service isn't configured. Chat is stateless — the client sends
-the transcript back with each turn.
+the transcript back with each turn. `/healthz` also reports the app version, the deployed
+commit (`git_sha`, from the `GIT_SHA` build arg) and each cached data file's age, and
+`/cosmetics` carries `prices_as_of` with a `last_update` on each price.
 
 The catalog and prices are served from `.cache/`, which the live schema and pricing tests
 build. If the API exits with a `StaleCacheError`, the cache predates the current format:
