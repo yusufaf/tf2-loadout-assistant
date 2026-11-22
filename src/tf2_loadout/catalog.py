@@ -150,10 +150,16 @@ def merge_catalog(
 SCHEMA_CACHE = "schema_items.json"
 EQUIP_CACHE = "equip.json"
 
-# Bump whenever equip.json gains or changes a field. A cache written by an older version
-# would otherwise load fine and quietly report every item as unpaintable, style-less and
-# unrestricted -- wrong answers are worse than a loud failure.
+# Bump whenever equip.json gains or changes a field `from_cache` reads. A cache written by
+# an older version would otherwise load fine and quietly report every item as unpaintable,
+# style-less and unrestricted -- wrong answers are worse than a loud failure. The
+# `items_game_url` and `derivation` fields are provenance only; from_cache ignores them.
 CACHE_VERSION = 3
+
+# Bump when resolve_equip_regions, resolve_item_attrs or parse_conflict_matrix give different
+# output for the same items_game. from_cache doesn't read it; it only makes
+# `tf2-loadout-refresh --catalog-if-changed` rebuild a catalog derived by older code.
+CATALOG_DERIVATION = 1
 
 
 class StaleCacheError(RuntimeError):
@@ -168,7 +174,11 @@ def save_schema_items(raw_items: list[dict], path: str | Path) -> None:
 
 
 def save_catalog_cache(
-    schema_items: list[dict], items_game: dict, cache_dir: str | Path
+    schema_items: list[dict],
+    items_game: dict,
+    cache_dir: str | Path,
+    *,
+    items_game_url: str | None = None,
 ) -> None:
     """Cache everything needed to rebuild the catalog offline.
 
@@ -180,6 +190,8 @@ def save_catalog_cache(
     save_schema_items(schema_items, cache_dir / SCHEMA_CACHE)
     equip = {
         "version": CACHE_VERSION,
+        "items_game_url": items_game_url,
+        "derivation": CATALOG_DERIVATION,
         "regions": {
             str(di): sorted(rs)
             for di, rs in resolve_equip_regions(items_game).items()
@@ -269,7 +281,7 @@ class CatalogService:
         if version != CACHE_VERSION:
             raise StaleCacheError(
                 f"catalog cache is v{version}, expected v{CACHE_VERSION} — "
-                "rebuild it with `uv run pytest --live`"
+                "rebuild it with `uv run tf2-loadout-refresh`"
             )
         regions = {
             int(di): frozenset(rs) for di, rs in equip["regions"].items()

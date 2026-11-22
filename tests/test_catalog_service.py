@@ -12,6 +12,7 @@ from tf2_loadout.models import Cosmetic
 from tf2_loadout.catalog import (
     ALL_CLASSES,
     CACHE_VERSION,
+    CATALOG_DERIVATION,
     CatalogService,
     StaleCacheError,
     load_defindex_names,
@@ -107,8 +108,8 @@ def test_from_cache_rejects_a_cache_written_before_versioning(tmp_path):
     with pytest.raises(StaleCacheError) as excinfo:
         CatalogService.from_cache(tmp_path)
 
-    # The message must tell the operator how to fix it -- there is no refresh script.
-    assert "pytest --live" in str(excinfo.value)
+    # The message must tell the operator how to fix it.
+    assert "tf2-loadout-refresh" in str(excinfo.value)
     assert str(CACHE_VERSION) in str(excinfo.value)
 
 
@@ -162,3 +163,14 @@ def test_from_cache_lists_all_class_items_under_every_class_and_drops_medals(tmp
         assert 135 in {c.defindex for c in catalog.for_class(cls)}
     assert catalog.get(8000) is None
     assert len(catalog) == 1
+
+
+def test_save_catalog_cache_records_items_game_url(tmp_path):
+    url = "http://media.steampowered.com/apps/440/scripts/items/items_game.abc12345.txt"
+    save_catalog_cache(CACHE_SCHEMA_ITEMS, CACHE_ITEMS_GAME, tmp_path, items_game_url=url)
+
+    equip = json.loads((tmp_path / "equip.json").read_text(encoding="utf-8"))
+    assert equip["items_game_url"] == url
+    assert equip["derivation"] == CATALOG_DERIVATION
+    # Provenance only: from_cache doesn't read either, so the cache still loads.
+    assert CatalogService.from_cache(tmp_path).get(116) is not None
