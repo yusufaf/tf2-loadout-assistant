@@ -34,6 +34,7 @@ Repository = "https://github.com/yusufaf/tf2-loadout-assistant"
 
 [project.scripts]
 tf2-loadout-api = "tf2_loadout.api:main"
+tf2-loadout-refresh = "tf2_loadout.refresh:main"
 
 [build-system]
 requires = ["hatchling"]
