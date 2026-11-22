@@ -43,11 +43,14 @@ class BuildInfo:
             version = None
         # The Dockerfile's ENV GIT_SHA=${GIT_SHA} sets "" when no build arg is passed.
         git_sha = environ.get(GIT_SHA_ENV, "").strip() or None
-        # Boot has already read all three files, so a missing one can't happen here.
-        data_modified = {
-            name: int((Path(cache_dir) / filename).stat().st_mtime)
-            for name, filename in DATA_FILES.items()
-        }
+        data_modified = {}
+        for name, filename in DATA_FILES.items():
+            # Diagnostics never stop the app from booting: a file that can't be read
+            # is left out of the report rather than raised.
+            try:
+                data_modified[name] = int((Path(cache_dir) / filename).stat().st_mtime)
+            except OSError:
+                continue
         return cls(version, git_sha, data_modified)
 
     def report(self, now: float) -> dict:

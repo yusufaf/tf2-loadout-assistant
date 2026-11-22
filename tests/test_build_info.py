@@ -7,6 +7,7 @@ import os
 
 import pytest
 
+from tf2_loadout import build_info
 from tf2_loadout.build_info import DATA_FILES, BuildInfo
 
 
@@ -42,3 +43,16 @@ def test_report_ages_against_now():
         "git_sha": "abc",
         "data": {"prices": {"modified": 1000, "age_seconds": 3600}},
     }
+
+
+def test_a_missing_data_file_is_left_out(tmp_path):
+    (tmp_path / DATA_FILES["prices"]).write_text("{}", encoding="utf-8")
+    assert set(BuildInfo.collect(tmp_path, environ={}).data_modified) == {"prices"}
+
+
+def test_version_is_none_without_package_metadata(tmp_path, monkeypatch):
+    def missing(name):
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(build_info, "dist_version", missing)
+    assert BuildInfo.collect(tmp_path, environ={}).version is None
