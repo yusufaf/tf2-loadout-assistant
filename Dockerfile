@@ -57,10 +57,9 @@ RUN TF2_WIKI_MCP_VERSION="$(python -c 'import tomllib; print(next(p["version"] f
 FROM python:3.12-slim AS app-files
 WORKDIR /app
 COPY src/ src/
-# Cache is gitignored (see .gitignore) and there's no production refresh script
-# (CLAUDE.md: rebuild it with `uv run pytest --live`) -- boots from whatever
-# snapshot is baked in at build time. Re-run the live tests and rebuild the
-# image to refresh schema/pricing data. .cache/lore is left out (.dockerignore):
+# Cache is gitignored (see .gitignore) -- boots from whatever snapshot is baked
+# in at build time. Run `uv run tf2-loadout-refresh` and rebuild the image to
+# refresh schema/pricing data. .cache/lore is left out (.dockerignore):
 # it's a runtime cache, so prod starts it empty rather than with the dev
 # machine's lookups. /healthz reports each file's mtime as its data age, which
 # relies on COPY keeping mtimes; check it after deploy.

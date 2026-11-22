@@ -61,15 +61,18 @@ the transcript back with each turn. `/healthz` also reports the app version, the
 commit (`git_sha`, from the `GIT_SHA` build arg) and each cached data file's age, and
 `/cosmetics` carries `prices_as_of` with a `last_update` on each price.
 
-The catalog and prices are served from `.cache/`, which the live schema and pricing tests
-build. If the API exits with a `StaleCacheError`, the cache predates the current format:
-rebuild it with `STEAM_API_KEY` and `BACKPACK_TF_API_KEY` set and `uv run pytest --live`.
+The catalog and prices are served from `.cache/`, which `uv run tf2-loadout-refresh` builds
+(with `STEAM_API_KEY` and `BACKPACK_TF_API_KEY` set). It validates the new data against the
+previous cache and replaces every file or none, so a failed refresh leaves the old cache in
+place; `--catalog-if-changed` keeps the catalog when Valve's items_game hasn't changed. If
+the API exits with a `StaleCacheError`, the cache predates the current format: run the
+refresh.
 
 ## Tests
 
 ```sh
 uv run pytest            # unit tests; never reaches a model or an external API
-uv run pytest --live     # also runs the tests that hit real APIs, and rebuilds .cache
+uv run pytest --live     # also runs the tests that hit real APIs (never writes .cache)
 
 cd frontend && pnpm test # Vitest over the frontend's logic modules (no DOM or component tests)
 ```

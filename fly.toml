@@ -23,8 +23,8 @@ primary_region = 'lax'
   # Chat needs no server-side secret: every player pastes their own provider key
   # into the browser and it rides each /chat request as a header. There is no
   # LLM_API_KEY to set here, on purpose -- the server never holds one.
-  # BACKPACK_TF_API_KEY is dev-only — used by `uv run pytest --live` to refresh
-  # .cache/, not by the running app.
+  # BACKPACK_TF_API_KEY is dev-only — used by `uv run tf2-loadout-refresh` to
+  # rebuild .cache/, not by the running app.
   # STEAM_API_KEY is dev-only for the catalog cache too, but is ALSO a runtime
   # secret once Steam sign-in is enabled (it's the same key, used differently).
   # Sign-in is optional like chat: /healthz reports "auth": false without it.

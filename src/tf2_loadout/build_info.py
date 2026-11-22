@@ -4,7 +4,7 @@ The catalog and prices are build-time snapshots copied into the image, so a bare
 "ok" from /healthz can't tell a deploy check which commit is running or how stale
 its data is. The version comes from package metadata. The git SHA comes from the
 ``GIT_SHA`` build arg, because ``.dockerignore`` keeps ``.git`` out of the build
-context. Data ages are the cache files' mtimes: the live tests write those files,
+context. Data ages are the cache files' mtimes: tf2-loadout-refresh writes those files,
 and Docker's COPY is relied on to keep the mtimes. /healthz is public, so nothing
 path-, env- or secret-shaped goes in the report.
 """
