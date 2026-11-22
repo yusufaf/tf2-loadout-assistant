@@ -1,7 +1,7 @@
 {
   "name": "TF2 Loadout Assistant",
   "short_name": "TF2 Loadout",
-  "description": "Browse TF2 cosmetics by class, try on a loadout, catch equip conflicts, and get live backpack.tf pricing.",
+  "description": "Browse TF2 cosmetics by class, try on a loadout, catch equip conflicts, and see backpack.tf price estimates.",
   "start_url": "/",
   "display": "browser",
   "background_color": "#e8dcc0",
