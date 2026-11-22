@@ -201,3 +201,19 @@ def test_from_cache_rejects_a_cache_from_a_newer_version(tmp_path):
 
     with pytest.raises(StaleCacheError):
         PricingService.from_cache(tmp_path)
+
+
+def test_as_of_is_the_newest_last_update():
+    pricing = PricingService(
+        {
+            1: Price("metal", 1.0, last_update=100),
+            2: Price("keys", 1.0, last_update=300),
+            3: Price("metal", 2.0),
+        }
+    )
+    assert pricing.as_of() == 300
+
+
+def test_as_of_is_none_without_any_last_update():
+    assert PricingService({1: Price("metal", 1.0)}).as_of() is None
+    assert PricingService({}).as_of() is None

@@ -12,6 +12,7 @@ import math
 import mimetypes
 import os
 import secrets
+import time
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -43,6 +44,7 @@ from tf2_loadout.agent import (
     turn_error,
 )
 from tf2_loadout.auth import SteamAuthError, SteamAuthService
+from tf2_loadout.build_info import BuildInfo
 from tf2_loadout.catalog import ALL_CLASSES, CatalogService, load_defindex_names
 from tf2_loadout.config import (
     PROVIDERS,
@@ -204,6 +206,8 @@ class PriceOut(BaseModel):
     # re-implementing the keys exchange rate; None when the currency (hat, usd) has no
     # ref equivalent.
     ref_value: float | None = None
+    # backpack.tf's "this price last changed" time, unix seconds.
+    last_update: int | None = None
 
 
 class CosmeticOut(BaseModel):
@@ -393,6 +397,7 @@ def create_app(
     public_base_url: str | None = None,
     limits: RateLimits | None = None,
     client_ip_header: str | None = None,
+    build_info: BuildInfo | None = None,
 ) -> FastAPI:
     app = _SecuredFastAPI(title="TF2 Loadout Assistant")
     canonical = urlsplit(public_base_url) if public_base_url else None
@@ -437,6 +442,9 @@ def create_app(
     # is itself a redirected host, which would redirect to itself.
     if canonical_origin and canonical.hostname not in REDIRECTED_HOSTS:
         app.add_middleware(CanonicalHostRedirect, canonical_origin=canonical_origin)
+
+    # Pricing is fixed for the app's life, so this is computed once.
+    prices_as_of = pricing.as_of()
 
     def to_out(cosmetic: Cosmetic) -> CosmeticOut:
         price = pricing.get(cosmetic.defindex)
@@ -565,6 +573,8 @@ def create_app(
             "auth": auth is not None,
             "inventory": inventory is not None,
             "loadouts": loadouts is not None,
+            **(build_info or BuildInfo()).report(time.time()),
+            "prices_as_of": prices_as_of,
         }
 
     @app.get("/cosmetics")
@@ -582,7 +592,7 @@ def create_app(
             items = [c for c in items if needle in c.name.lower()]
         if limit > 0:
             items = items[:limit]
-        return {"items": [to_out(c) for c in items]}
+        return {"items": [to_out(c) for c in items], "prices_as_of": prices_as_of}
 
     @app.get("/equip-conflicts")
     def equip_conflicts() -> dict:
@@ -873,6 +883,7 @@ def main() -> None:
     load_env()
     catalog = CatalogService.from_cache(CACHE_DIR)
     pricing = PricingService.from_cache(CACHE_DIR)
+    build_info = BuildInfo.collect(CACHE_DIR)
     lore = LoreService(WikiClient(), cache_dir=CACHE_DIR)
 
     settings = LLMSettings.from_env()
@@ -928,6 +939,7 @@ def main() -> None:
         loadouts=loadouts,
         public_base_url=auth_settings.public_base_url,
         limits=RateLimits(),
+        build_info=build_info,
         # Not request.client: with forwarded_allow_ips="*" uvicorn reports the leftmost
         # X-Forwarded-For entry, which the client chose. Fly overwrites Fly-Client-IP.
         client_ip_header=FLY_CLIENT_IP_HEADER if os.environ.get("FLY_APP_NAME") else None,

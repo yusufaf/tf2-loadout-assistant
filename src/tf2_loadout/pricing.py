@@ -127,6 +127,17 @@ class PricingService:
     def get(self, defindex: int) -> Price | None:
         return self._prices.get(defindex)
 
+    def as_of(self) -> int | None:
+        """The newest backpack.tf price change in the snapshot, in unix seconds.
+
+        A lower bound on when the snapshot was taken: backpack.tf records when a price
+        changed, not when we fetched it, so "as of" never overstates freshness.
+        """
+        return max(
+            (p.last_update for p in self._prices.values() if p.last_update is not None),
+            default=None,
+        )
+
     def save_cache(self, cache_dir: str | Path) -> None:
         cache_dir = Path(cache_dir)
         cache_dir.mkdir(parents=True, exist_ok=True)
