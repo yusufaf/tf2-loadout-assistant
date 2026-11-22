@@ -403,6 +403,16 @@ def _prices_status(status: int) -> FakeUpstream:
         ("prices", httpx.Response(500, text="down"), ExitCode.FETCH_FAILED, "HTTP 500"),
         ("overview", httpx.Response(403, text="no"), ExitCode.BAD_KEY, "key rejected"),
         ("prices", httpx.Response(401, text="no"), ExitCode.BAD_KEY, "key rejected"),
+        # backpack.tf's real reply to a bad key (probed 2026-11-21): HTTP 403, not 200.
+        (
+            "prices",
+            httpx.Response(
+                403,
+                json={"response": {"success": 0, "message": "This API key is not valid."}},
+            ),
+            ExitCode.BAD_KEY,
+            "key rejected",
+        ),
         (
             "prices",
             httpx.Response(200, json={"response": {"success": 1, "items": {}}}),

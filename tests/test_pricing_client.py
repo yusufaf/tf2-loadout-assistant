@@ -68,3 +68,11 @@ async def test_non_json_body_raises_pricing_error():
     async with PricingClient(api_key="k", transport=transport) as client:
         with pytest.raises(PricingError, match="non-JSON"):
             await client.fetch_prices()
+
+
+@pytest.mark.parametrize("body", ["null", "[]", '{"response": null}'])
+async def test_a_json_body_that_is_not_an_object_raises_pricing_error(body):
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text=body))
+    async with PricingClient(api_key="k", transport=transport) as client:
+        with pytest.raises(PricingError):
+            await client.fetch_prices()

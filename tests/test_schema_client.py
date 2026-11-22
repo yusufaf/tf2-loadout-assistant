@@ -109,3 +109,13 @@ def test_items_game_hash_extracts_sha():
 
 def test_items_game_hash_is_none_for_an_unexpected_url():
     assert items_game_hash("http://media.steampowered.com/apps/440/items_game.txt") is None
+
+
+@pytest.mark.parametrize("body", ["null", "[]", '{"result": null}'])
+async def test_a_json_body_that_is_not_an_object_raises_schema_error(body):
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text=body))
+    async with SchemaClient(api_key="dummy", transport=transport) as client:
+        with pytest.raises(SchemaError):
+            await client.fetch_all_items()
+        with pytest.raises(SchemaError):
+            await client.fetch_items_game_url()

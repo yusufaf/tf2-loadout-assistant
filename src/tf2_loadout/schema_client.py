@@ -35,11 +35,16 @@ def items_game_hash(url: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _json(resp: httpx.Response, what: str) -> dict:
+def _result(resp: httpx.Response, what: str) -> dict:
+    """The ``result`` object of a Steam Web API response, or SchemaError."""
     try:
-        return resp.json()
+        data = resp.json()
     except ValueError as e:
         raise SchemaError(f"{what} returned a non-JSON body") from e
+    result = data.get("result") if isinstance(data, dict) else None
+    if not isinstance(result, dict):
+        raise SchemaError(f"{what} returned no result object")
+    return result
 
 
 class SchemaClient:
@@ -78,7 +83,7 @@ class SchemaClient:
                 params["start"] = start
             resp = await self._client.get(self._base_url, params=params)
             resp.raise_for_status()
-            result = _json(resp, "GetSchemaItems").get("result", {})
+            result = _result(resp, "GetSchemaItems")
             if result.get("status") != 1:
                 raise SchemaError(f"schema returned status {result.get('status')!r}")
             items.extend(result.get("items", []))
@@ -92,7 +97,7 @@ class SchemaClient:
             OVERVIEW_URL, params={"key": self._api_key, "language": "en"}
         )
         resp.raise_for_status()
-        result = _json(resp, "GetSchemaOverview").get("result", {})
+        result = _result(resp, "GetSchemaOverview")
         if result.get("status") != 1:
             raise SchemaError(f"schema overview returned status {result.get('status')!r}")
         url = result.get("items_game_url")

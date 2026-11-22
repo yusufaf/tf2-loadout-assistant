@@ -55,7 +55,10 @@ class PricingClient:
             data = resp.json()
         except ValueError as e:
             raise PricingError("backpack.tf returned a non-JSON body") from e
-        if data.get("response", {}).get("success") != 1:
-            message = data.get("response", {}).get("message", "unknown error")
+        response = data.get("response") if isinstance(data, dict) else None
+        if not isinstance(response, dict):
+            raise PricingError("backpack.tf returned no response object")
+        if response.get("success") != 1:
+            message = response.get("message", "unknown error")
             raise PricingError(f"backpack.tf: {message}")
         return data
