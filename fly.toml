@@ -7,6 +7,10 @@
 # across all Fly users, so a fork must run `fly apps create <its own name>` and
 # update `app` here to match before deploying.
 #
+# Deploy from this repo with the commit as a build arg, so /healthz can report it
+# (git_sha is null without it):
+#   fly deploy --build-arg GIT_SHA=$(git rev-parse HEAD)
+#
 # See https://fly.io/docs/reference/configuration/
 
 app = 'tf2-loadout-af'

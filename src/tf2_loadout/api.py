@@ -12,6 +12,7 @@ import math
 import mimetypes
 import os
 import secrets
+import time
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -43,6 +44,7 @@ from tf2_loadout.agent import (
     turn_error,
 )
 from tf2_loadout.auth import SteamAuthError, SteamAuthService
+from tf2_loadout.build_info import BuildInfo
 from tf2_loadout.catalog import ALL_CLASSES, CatalogService, load_defindex_names
 from tf2_loadout.config import (
     PROVIDERS,
@@ -395,6 +397,7 @@ def create_app(
     public_base_url: str | None = None,
     limits: RateLimits | None = None,
     client_ip_header: str | None = None,
+    build_info: BuildInfo | None = None,
 ) -> FastAPI:
     app = _SecuredFastAPI(title="TF2 Loadout Assistant")
     canonical = urlsplit(public_base_url) if public_base_url else None
@@ -570,6 +573,8 @@ def create_app(
             "auth": auth is not None,
             "inventory": inventory is not None,
             "loadouts": loadouts is not None,
+            **(build_info or BuildInfo()).report(time.time()),
+            "prices_as_of": prices_as_of,
         }
 
     @app.get("/cosmetics")
@@ -878,6 +883,7 @@ def main() -> None:
     load_env()
     catalog = CatalogService.from_cache(CACHE_DIR)
     pricing = PricingService.from_cache(CACHE_DIR)
+    build_info = BuildInfo.collect(CACHE_DIR)
     lore = LoreService(WikiClient(), cache_dir=CACHE_DIR)
 
     settings = LLMSettings.from_env()
@@ -933,6 +939,7 @@ def main() -> None:
         loadouts=loadouts,
         public_base_url=auth_settings.public_base_url,
         limits=RateLimits(),
+        build_info=build_info,
         # Not request.client: with forwarded_allow_ips="*" uvicorn reports the leftmost
         # X-Forwarded-For entry, which the client chose. Fly overwrites Fly-Client-IP.
         client_ip_header=FLY_CLIENT_IP_HEADER if os.environ.get("FLY_APP_NAME") else None,

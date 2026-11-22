@@ -62,7 +62,8 @@ COPY src/ src/
 # snapshot is baked in at build time. Re-run the live tests and rebuild the
 # image to refresh schema/pricing data. .cache/lore is left out (.dockerignore):
 # it's a runtime cache, so prod starts it empty rather than with the dev
-# machine's lookups.
+# machine's lookups. /healthz reports each file's mtime as its data age, which
+# relies on COPY keeping mtimes; check it after deploy.
 COPY .cache/ .cache/
 COPY --from=frontend-build /app/frontend/dist/ frontend/dist/
 # Compiled here because the runtime user can't write __pycache__ into src.
@@ -86,6 +87,11 @@ COPY --from=app-files /app/ ./
 RUN test -z "$(ls -A .cache/lore)" && chown app:app .cache/lore
 
 ENV PATH="/app/.venv/bin:$PATH"
+# .git isn't in the build context (.dockerignore), so the deploy passes the commit in:
+# fly deploy --build-arg GIT_SHA=$(git rev-parse HEAD). /healthz reports it as
+# git_sha, null without it. Declared last so a new SHA rebuilds no earlier layer.
+ARG GIT_SHA=
+ENV GIT_SHA=${GIT_SHA}
 USER app
 EXPOSE 8000
 CMD ["tf2-loadout-api"]

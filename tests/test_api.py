@@ -6,6 +6,7 @@ Cosmetic responses join in the price when one exists.
 
 import asyncio
 import json
+import time
 
 import pytest
 from fastapi import HTTPException
@@ -24,6 +25,7 @@ from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models import Model
 
 from tf2_loadout.agent import LoadoutAgentService, LoadoutDeps, build_agent
+from tf2_loadout.build_info import DATA_FILES, BuildInfo
 from tf2_loadout.models import Cosmetic, Price
 from tf2_loadout.catalog import CatalogService
 from tf2_loadout.lore import ItemLore, LoreService
@@ -68,7 +70,9 @@ class _StubWiki:
         }
 
 
-def _client(public_base_url: str | None = None) -> TestClient:
+def _client(
+    public_base_url: str | None = None, build_info: BuildInfo | None = None
+) -> TestClient:
     catalog = CatalogService(
         [
             Cosmetic(1, "Spy Fedora", frozenset({"hat"}), ("Spy",), "misc", "img1"),
@@ -78,7 +82,11 @@ def _client(public_base_url: str | None = None) -> TestClient:
     )
     pricing = PricingService({1: Price("metal", 5.0, 6.0, last_update=1_700_000_000)})
     lore = LoreService(_StubWiki())
-    return TestClient(create_app(catalog, pricing, lore, public_base_url=public_base_url))
+    return TestClient(
+        create_app(
+            catalog, pricing, lore, public_base_url=public_base_url, build_info=build_info
+        )
+    )
 
 
 def test_healthz_reports_counts():
@@ -88,6 +96,35 @@ def test_healthz_reports_counts():
     assert body["status"] == "ok"
     assert body["cosmetics"] == 3
     assert body["priced"] == 1
+
+
+def test_healthz_reports_build_and_data_ages():
+    modified = int(time.time()) - 3600
+    body = _client(build_info=BuildInfo("0.1.0", "abc123", {"prices": modified})).get(
+        "/healthz"
+    ).json()
+    assert body["version"] == "0.1.0"
+    assert body["git_sha"] == "abc123"
+    assert body["data"]["prices"]["modified"] == modified
+    assert 3600 <= body["data"]["prices"]["age_seconds"] < 3660
+    assert body["prices_as_of"] == 1_700_000_000
+
+
+def test_healthz_without_build_info_reports_nulls():
+    body = _client().get("/healthz").json()
+    assert body["version"] is None
+    assert body["git_sha"] is None
+    assert body["data"] == {}
+
+
+def test_healthz_exposes_no_cache_path(tmp_path):
+    for name in DATA_FILES.values():
+        (tmp_path / name).write_text("{}", encoding="utf-8")
+    r = _client(build_info=BuildInfo.collect(tmp_path, environ={})).get("/healthz")
+    assert r.status_code == 200
+    assert set(r.json()["data"]) == set(DATA_FILES)
+    assert str(tmp_path) not in r.text
+    assert tmp_path.name not in r.text
 
 
 def test_cosmetics_filtered_by_class_join_prices():
