@@ -1,10 +1,8 @@
 """Live end-to-end build of the cosmetic catalog from real Steam data.
 
-Skipped unless ``--live`` is passed (needs STEAM_API_KEY in the environment). On success
-it writes the catalog cache so the app can run offline afterwards.
+Skipped unless ``--live`` is passed (needs STEAM_API_KEY in the environment). It no
+longer writes the cache: ``tf2-loadout-refresh`` does that.
 """
-
-from pathlib import Path
 
 import pytest
 
@@ -13,10 +11,7 @@ from tf2_loadout.catalog import (
     ALL_CLASSES,
     MEDAL_TYPES,
     CatalogService,
-    save_catalog_cache,
 )
-
-CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache"
 
 
 @pytest.mark.live
@@ -46,7 +41,3 @@ async def test_builds_real_catalog_and_caches():
     # Towering Pillar of Hats is an all-class item: every class lists it.
     for cls in ALL_CLASSES:
         assert catalog.get(135) in catalog.for_class(cls)
-
-    save_catalog_cache(schema_items, items_game, CACHE_DIR)
-    assert (CACHE_DIR / "schema_items.json").exists()
-    assert (CACHE_DIR / "equip.json").exists()
