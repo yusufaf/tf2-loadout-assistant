@@ -114,7 +114,7 @@ class PricingService:
         else:
             raise StaleCacheError(
                 f"prices cache is v{version}, expected v{PRICES_CACHE_VERSION} — "
-                "rebuild it with `uv run pytest --live`"
+                "rebuild it with `uv run tf2-loadout-refresh`"
             )
         return cls(
             {

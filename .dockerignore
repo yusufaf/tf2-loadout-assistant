@@ -16,5 +16,7 @@ frontend/dist
 frontend/.env*
 # A runtime cache; prod starts it empty (see Dockerfile).
 .cache/lore
+# A crashed tf2-loadout-refresh's staging dir.
+.cache/.refresh-*
 **/__pycache__
 **/*.py[cod]

@@ -54,3 +54,25 @@ async def test_unsuccessful_response_raises():
     async with PricingClient(api_key="bad", transport=transport) as client:
         with pytest.raises(PricingError, match="not valid"):
             await client.fetch_prices()
+
+
+async def test_http_error_raises():
+    transport = httpx.MockTransport(lambda request: httpx.Response(500, text="down"))
+    async with PricingClient(api_key="k", transport=transport) as client:
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.fetch_prices()
+
+
+async def test_non_json_body_raises_pricing_error():
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text="<html>cf</html>"))
+    async with PricingClient(api_key="k", transport=transport) as client:
+        with pytest.raises(PricingError, match="non-JSON"):
+            await client.fetch_prices()
+
+
+@pytest.mark.parametrize("body", ["null", "[]", '{"response": null}'])
+async def test_a_json_body_that_is_not_an_object_raises_pricing_error(body):
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text=body))
+    async with PricingClient(api_key="k", transport=transport) as client:
+        with pytest.raises(PricingError):
+            await client.fetch_prices()
