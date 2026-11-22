@@ -51,7 +51,10 @@ class PricingClient:
             self._base_url, params={"key": self._api_key, "appid": 440}
         )
         resp.raise_for_status()
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError as e:
+            raise PricingError("backpack.tf returned a non-JSON body") from e
         if data.get("response", {}).get("success") != 1:
             message = data.get("response", {}).get("message", "unknown error")
             raise PricingError(f"backpack.tf: {message}")
