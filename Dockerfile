@@ -14,8 +14,8 @@ COPY frontend/ ./
 RUN pnpm build
 
 # --- Stage 2: python dependencies --------------------------------------------
-FROM python:3.12-slim AS python-build
-COPY --from=ghcr.io/astral-sh/uv:0.12.24 /uv /bin/uv
+FROM python:3.15-slim AS python-build
+COPY --from=ghcr.io/astral-sh/uv:0.13.10 /uv /bin/uv
 # Bytecode is compiled at build time because the runtime user can't write
 # __pycache__ into the venv, and Fly's auto-start cold boots shouldn't pay for it.
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0 UV_NO_CACHE=1
@@ -54,7 +54,7 @@ RUN TF2_WIKI_MCP_VERSION="$(python -c 'import tomllib; print(next(p["version"] f
 # (Vite copies frontend/public into dist with those modes). Modes are fixed
 # here so the runtime stage's COPY --from carries them without a second 15 MB
 # layer for schema_items.json.
-FROM python:3.12-slim AS app-files
+FROM python:3.15-slim AS app-files
 WORKDIR /app
 COPY src/ src/
 # Cache is gitignored (see .gitignore) -- boots from whatever snapshot is baked
@@ -73,7 +73,7 @@ RUN python -m compileall -q --invalidation-mode checked-hash src \
     && chmod -R u=rwX,go=rX src .cache frontend
 
 # --- Stage 4: runtime ------------------------------------------------------------
-FROM python:3.12-slim AS runtime
+FROM python:3.15-slim AS runtime
 WORKDIR /app
 RUN useradd --system --create-home app
 
